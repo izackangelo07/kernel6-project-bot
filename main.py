@@ -17,7 +17,7 @@ CATEGORY, DESCRIPTION, PHOTO, LOCATION = range(4)
 user_data_store = {}
 
 # ========================
-# Função que envia menu inicial
+# Menu inicial
 # ========================
 async def send_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, text="👋 Olá! Escolha uma opção:"):
     keyboard = [
@@ -25,23 +25,31 @@ async def send_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, text="�
         [InlineKeyboardButton("Listar registros", callback_data="listar")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(text, reply_markup=reply_markup)
+    if update.message:
+        await update.message.reply_text(text, reply_markup=reply_markup)
+    elif update.callback_query:
+        await update.callback_query.message.reply_text(text, reply_markup=reply_markup)
 
 # ========================
 # /start
 # ========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_menu(update, context, "👋 Bem-vindo! Escolha uma opção:")
+    await update.message.reply_text(
+        "👋 Bem-vindo ao Kernel6 Project!\n"
+        "Ajude a melhorar nossa comunidade...\n"
+        "Escolha uma opção:"
+    )
+    await send_menu(update, context)
 
 # ========================
-# Callback dos botões do menu
+# Callback do menu principal
 # ========================
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
     if query.data == "registrar":
-        # Mensagem de boas-vindas + escolha de categoria
+        # Botões de categoria
         keyboard = [
             [InlineKeyboardButton("Iluminação pública", callback_data="Iluminação pública")],
             [InlineKeyboardButton("Limpeza urbana", callback_data="Limpeza urbana")],
@@ -52,12 +60,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("Outro", callback_data="Outro")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(
-            "Bem-vindo ao Kernel6 Project!\n"
-            "Ajude a melhorar nossa comunidade...\n\n"
-            "📝 Qual categoria do registro?",
-            reply_markup=reply_markup
-        )
+        await query.edit_message_text("📝 Qual categoria do registro?", reply_markup=reply_markup)
         return CATEGORY
 
     elif query.data == "listar":
@@ -85,16 +88,13 @@ async def ask_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ask_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['registro']['descricao'] = update.message.text
-
-    # Botões para adicionar arquivo ou pular
+    # Botões para foto
     keyboard = [
         [InlineKeyboardButton("Adicionar arquivo", callback_data="add_file")],
         [InlineKeyboardButton("Pular", callback_data="skip_file")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        "📷 Deseja adicionar uma foto?", reply_markup=reply_markup
-    )
+    await update.message.reply_text("📷 Deseja adicionar uma foto?", reply_markup=reply_markup)
     return PHOTO
 
 async def photo_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -128,7 +128,6 @@ async def ask_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("✅ Registro salvo com sucesso!")
     context.user_data.clear()
-    # Volta ao menu
     await send_menu(update, context)
     return ConversationHandler.END
 
@@ -136,9 +135,9 @@ async def ask_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Conversação
 # ========================
 conv_handler = ConversationHandler(
-    entry_points=[CallbackQueryHandler(button_callback)],
+    entry_points=[CallbackQueryHandler(main_menu_callback, pattern="^(registrar|listar)$")],
     states={
-        CATEGORY: [CallbackQueryHandler(ask_category)],
+        CATEGORY: [CallbackQueryHandler(ask_category)],  # botões categoria
         DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_description)],
         PHOTO: [
             CallbackQueryHandler(photo_choice, pattern="^(add_file|skip_file)$"),
@@ -150,10 +149,10 @@ conv_handler = ConversationHandler(
 )
 
 # ========================
-# Qualquer texto envia menu
+# Qualquer texto exibe menu
 # ========================
 async def any_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_menu(update, context, "👋 Olá! Escolha uma opção:")
+    await send_menu(update, context)
 
 # ========================
 # Registro do bot
@@ -161,7 +160,6 @@ async def any_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(conv_handler)
-app.add_handler(CallbackQueryHandler(button_callback))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, any_text))
 
 # ========================
