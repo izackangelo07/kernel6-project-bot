@@ -17,21 +17,24 @@ CATEGORY, DESCRIPTION, PHOTO, LOCATION = range(4)
 user_data_store = {}
 
 # ========================
-# /start com botões
+# Função que envia o menu
 # ========================
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def send_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, text="👋 Olá! Escolha uma opção:"):
     keyboard = [
         [InlineKeyboardButton("Registrar", callback_data="registrar")],
         [InlineKeyboardButton("Listar registros", callback_data="listar")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        "👋 Bem-vindo! Escolha uma opção:",
-        reply_markup=reply_markup
-    )
+    await update.message.reply_text(text, reply_markup=reply_markup)
 
 # ========================
-# Callback de botões
+# /start
+# ========================
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_menu(update, context, "👋 Bem-vindo! Escolha uma opção:")
+
+# ========================
+# Callback dos botões
 # ========================
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -67,7 +70,6 @@ async def ask_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return PHOTO
 
 async def ask_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    file = None
     if update.message.photo:
         file = await update.message.photo[-1].get_file()
         context.user_data['registro']['photo_file_id'] = file.file_id
@@ -89,6 +91,8 @@ async def ask_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("✅ Registro salvo com sucesso!")
     context.user_data.clear()
+    # Volta ao menu
+    await send_menu(update, context)
     return ConversationHandler.END
 
 # ========================
@@ -109,12 +113,19 @@ conv_handler = ConversationHandler(
 )
 
 # ========================
+# Responde qualquer texto com menu
+# ========================
+async def any_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_menu(update, context, "👋 Olá! Escolha uma opção:")
+
+# ========================
 # Registro do bot
 # ========================
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(conv_handler)
-app.add_handler(CallbackQueryHandler(button_callback))  # Para botões do /start
+app.add_handler(CallbackQueryHandler(button_callback))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, any_text))  # qualquer mensagem exibe menu
 
 # ========================
 # Webhook (Render)
