@@ -1,30 +1,120 @@
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler,
+    ConversationHandler, ContextTypes, filters
+)
 import os
 
-# ========================
-# Configurações
-# ========================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 PORT = int(os.environ.get("PORT", 8443))
 
-# Inicializa o bot
-app = ApplicationBuilder().token(BOT_TOKEN).build()
+# ========================
+# Estados do formulário
+# ========================
+CATEGORY, DESCRIPTION, PHOTO, LOCATION = range(4)
+
+# Memória temporária de registros por chat
+user_data_store = {}
 
 # ========================
-# Comando /start
+# /start com botões
 # ========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("Registrar", callback_data="registrar")],
+        [InlineKeyboardButton("Listar registros", callback_data="listar")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        "👋 Bem-vindo!\n\n"
-        "Este é um bot simples.\n"
-        "Por enquanto, apenas o comando /start está disponível."
+        "👋 Bem-vindo! Escolha uma opção:",
+        reply_markup=reply_markup
     )
 
 # ========================
-# Registro do handler
+# Callback de botões
 # ========================
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "registrar":
+        await query.edit_message_text("📝 Qual categoria do registro?")
+        return CATEGORY
+    elif query.data == "listar":
+        chat_id = query.message.chat_id
+        registros = user_data_store.get(chat_id, [])
+        if not registros:
+            await query.edit_message_text("📋 Nenhum registro encontrado.")
+        else:
+            msg = "📋 Registros:\n\n"
+            for i, r in enumerate(registros, 1):
+                msg += f"{i}. Categoria: {r['categoria']}\n   Descrição: {r['descricao']}\n   Local: {r['local']}\n\n"
+            await query.edit_message_text(msg)
+        return ConversationHandler.END
+
+# ========================
+# Etapas do formulário
+# ========================
+async def ask_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['registro'] = {}
+    context.user_data['registro']['categoria'] = update.message.text
+    await update.message.reply_text("✏️ Qual a descrição?")
+    return DESCRIPTION
+
+async def ask_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['registro']['descricao'] = update.message.text
+    await update.message.reply_text("📷 Envie uma foto (ou digite /skip se não quiser enviar).")
+    return PHOTO
+
+async def ask_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    file = None
+    if update.message.photo:
+        file = await update.message.photo[-1].get_file()
+        context.user_data['registro']['photo_file_id'] = file.file_id
+    await update.message.reply_text("📍 Onde ocorreu?")
+    return LOCATION
+
+async def skip_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['registro']['photo_file_id'] = None
+    await update.message.reply_text("📍 Onde ocorreu?")
+    return LOCATION
+
+async def ask_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
+    context.user_data['registro']['local'] = update.message.text
+
+    if chat_id not in user_data_store:
+        user_data_store[chat_id] = []
+    user_data_store[chat_id].append(context.user_data['registro'])
+
+    await update.message.reply_text("✅ Registro salvo com sucesso!")
+    context.user_data.clear()
+    return ConversationHandler.END
+
+# ========================
+# Conversação
+# ========================
+conv_handler = ConversationHandler(
+    entry_points=[CallbackQueryHandler(button_callback)],
+    states={
+        CATEGORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_category)],
+        DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_description)],
+        PHOTO: [
+            MessageHandler(filters.PHOTO, ask_photo),
+            CommandHandler("skip", skip_photo)
+        ],
+        LOCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_location)],
+    },
+    fallbacks=[CommandHandler("skip", skip_photo)]
+)
+
+# ========================
+# Registro do bot
+# ========================
+app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
+app.add_handler(conv_handler)
+app.add_handler(CallbackQueryHandler(button_callback))  # Para botões do /start
 
 # ========================
 # Webhook (Render)
