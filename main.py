@@ -17,7 +17,7 @@ CATEGORY, DESCRIPTION, PHOTO, LOCATION = range(4)
 user_data_store = {}
 
 # ========================
-# Função que envia o menu
+# Função que envia menu inicial
 # ========================
 async def send_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, text="👋 Olá! Escolha uma opção:"):
     keyboard = [
@@ -34,15 +34,32 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_menu(update, context, "👋 Bem-vindo! Escolha uma opção:")
 
 # ========================
-# Callback dos botões
+# Callback dos botões do menu
 # ========================
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
+
     if query.data == "registrar":
-        await query.edit_message_text("📝 Qual categoria do registro?")
+        # Mensagem de boas-vindas + escolha de categoria
+        keyboard = [
+            [InlineKeyboardButton("Iluminação pública", callback_data="Iluminação pública")],
+            [InlineKeyboardButton("Limpeza urbana", callback_data="Limpeza urbana")],
+            [InlineKeyboardButton("Buraco na rua", callback_data="Buraco na rua")],
+            [InlineKeyboardButton("Áreas verdes / Praças", callback_data="Áreas verdes / Praças")],
+            [InlineKeyboardButton("Escola / Creche", callback_data="Escola / Creche")],
+            [InlineKeyboardButton("Segurança", callback_data="Segurança")],
+            [InlineKeyboardButton("Outro", callback_data="Outro")],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "Bem-vindo ao Kernel6 Project!\n"
+            "Ajude a melhorar nossa comunidade...\n\n"
+            "📝 Qual categoria do registro?",
+            reply_markup=reply_markup
+        )
         return CATEGORY
+
     elif query.data == "listar":
         chat_id = query.message.chat_id
         registros = user_data_store.get(chat_id, [])
@@ -56,30 +73,50 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
 # ========================
-# Etapas do formulário
+# Formulário
 # ========================
 async def ask_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
     context.user_data['registro'] = {}
-    context.user_data['registro']['categoria'] = update.message.text
-    await update.message.reply_text("✏️ Qual a descrição?")
+    context.user_data['registro']['categoria'] = query.data
+    await query.edit_message_text("Descreva o problema.")
     return DESCRIPTION
 
 async def ask_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['registro']['descricao'] = update.message.text
-    await update.message.reply_text("📷 Envie uma foto (ou digite /skip se não quiser enviar).")
+
+    # Botões para adicionar arquivo ou pular
+    keyboard = [
+        [InlineKeyboardButton("Adicionar arquivo", callback_data="add_file")],
+        [InlineKeyboardButton("Pular", callback_data="skip_file")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        "📷 Deseja adicionar uma foto?", reply_markup=reply_markup
+    )
     return PHOTO
+
+async def photo_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if query.data == "skip_file":
+        context.user_data['registro']['photo_file_id'] = None
+        await query.edit_message_text("Onde fica o problema?")
+        return LOCATION
+    elif query.data == "add_file":
+        await query.edit_message_text("📷 Envie a foto agora.")
+        return PHOTO
 
 async def ask_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.photo:
         file = await update.message.photo[-1].get_file()
         context.user_data['registro']['photo_file_id'] = file.file_id
-    await update.message.reply_text("📍 Onde ocorreu?")
-    return LOCATION
-
-async def skip_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['registro']['photo_file_id'] = None
-    await update.message.reply_text("📍 Onde ocorreu?")
-    return LOCATION
+        await update.message.reply_text("Onde fica o problema?")
+        return LOCATION
+    else:
+        await update.message.reply_text("Por favor, envie uma foto válida ou clique em 'Pular'.")
+        return PHOTO
 
 async def ask_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
@@ -101,19 +138,19 @@ async def ask_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
 conv_handler = ConversationHandler(
     entry_points=[CallbackQueryHandler(button_callback)],
     states={
-        CATEGORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_category)],
+        CATEGORY: [CallbackQueryHandler(ask_category)],
         DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_description)],
         PHOTO: [
-            MessageHandler(filters.PHOTO, ask_photo),
-            CommandHandler("skip", skip_photo)
+            CallbackQueryHandler(photo_choice, pattern="^(add_file|skip_file)$"),
+            MessageHandler(filters.PHOTO, ask_photo)
         ],
         LOCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_location)],
     },
-    fallbacks=[CommandHandler("skip", skip_photo)]
+    fallbacks=[]
 )
 
 # ========================
-# Responde qualquer texto com menu
+# Qualquer texto envia menu
 # ========================
 async def any_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_menu(update, context, "👋 Olá! Escolha uma opção:")
@@ -125,7 +162,7 @@ app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(conv_handler)
 app.add_handler(CallbackQueryHandler(button_callback))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, any_text))  # qualquer mensagem exibe menu
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, any_text))
 
 # ========================
 # Webhook (Render)
