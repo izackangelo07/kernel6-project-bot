@@ -99,24 +99,28 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # -----------------------------
     # listar registros
     # -----------------------------
+
     elif query.data == "listar":
-        chat_id = query.message.chat_id
-        registros = user_data_store.get(chat_id, [])
+		chat_id = query.message.chat_id
+		registros = user_data_store.get(chat_id, [])
 
-        if not registros:
-            await query.edit_message_text("📋 Nenhum registro encontrado.")
-        else:
-            msg = "📋 *Registros:*\n\n"
-            for i, r in enumerate(registros, 1):
-                msg += f"{i}. Categoria: {r['categoria']}\n"
-                msg += f"   Descrição: {r['descricao']}\n"
-                msg += f"   Local: {r['local']}\n\n"
+		if not registros:
+			await query.message.reply_text("📋 Nenhum registro encontrado.")
+		else:
+			msg = "📋 *Registros:*\n\n"
+			for i, r in enumerate(registros, 1):
+				msg += f"{i}. Categoria: {r['categoria']}\n"
+				msg += f"   Descrição: {r['descricao']}\n"
+				msg += f"   Local: {r['local']}\n\n"
 
-            await query.edit_message_text(msg, parse_mode="Markdown")
+			# 👉 importante: reply_text() cria nova mensagem sem apagar nada
+			await query.message.reply_text(msg, parse_mode="Markdown")
 
-        # voltar para o menu
-        await send_menu(update, context)
-        return ConversationHandler.END
+		# 👉 mostra o menu sem apagar a lista
+		await send_menu(update, context)
+
+		return CATEGORIA  # ou MENU, ou ConversationHandler.END — o que quiser
+
 
 
 # ============================================================
