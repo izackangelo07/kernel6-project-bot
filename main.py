@@ -179,12 +179,22 @@ async def receber_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Onde fica o problema?")
         return LOCATION
 
-    # enviaram texto = erro
+    # ❌ enviaram texto => mostrar aviso + botões novamente
+    keyboard = [
+        [
+            InlineKeyboardButton("📷 Adicionar foto", callback_data="add_file"),
+            InlineKeyboardButton("⏭️ Pular", callback_data="skip_file")
+        ]
+    ]
+
     await update.message.reply_text(
         "⚠️ Por favor, envie *uma foto* ou clique em *Pular*.",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
     return PHOTO
+
 
 
 # ============================================================
