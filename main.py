@@ -43,7 +43,7 @@ async def send_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
     else:
-        await update.callback_query.edit_message_text(
+        await update.callback_query.message.reply_text(
             "👋 *Bem-vindo ao Kernel6 Project!*\n"
             "Ajude a melhorar nossa comunidade...\n\n"
             "Escolha uma opção:",
@@ -97,30 +97,26 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return CATEGORIA
 
     # -----------------------------
-    # listar registros
+    # listar registros — CORRIGIDO
     # -----------------------------
-
     elif query.data == "listar":
-		chat_id = query.message.chat_id
-		registros = user_data_store.get(chat_id, [])
+        chat_id = query.message.chat_id
+        registros = user_data_store.get(chat_id, [])
 
-		if not registros:
-			await query.message.reply_text("📋 Nenhum registro encontrado.")
-		else:
-			msg = "📋 *Registros:*\n\n"
-			for i, r in enumerate(registros, 1):
-				msg += f"{i}. Categoria: {r['categoria']}\n"
-				msg += f"   Descrição: {r['descricao']}\n"
-				msg += f"   Local: {r['local']}\n\n"
+        if not registros:
+            await query.message.reply_text("📋 Nenhum registro encontrado.")
+        else:
+            msg = "📋 *Registros:*\n\n"
+            for i, r in enumerate(registros, 1):
+                msg += f"{i}. Categoria: {r['categoria']}\n"
+                msg += f"   Descrição: {r['descricao']}\n"
+                msg += f"   Local: {r['local']}\n\n"
 
-			# 👉 importante: reply_text() cria nova mensagem sem apagar nada
-			await query.message.reply_text(msg, parse_mode="Markdown")
+            await query.message.reply_text(msg, parse_mode="Markdown")
 
-		# 👉 mostra o menu sem apagar a lista
-		await send_menu(update, context)
-
-		return CATEGORIA  # ou MENU, ou ConversationHandler.END — o que quiser
-
+        # 🔥 Agora o menu aparece abaixo, sem apagar a lista
+        await send_menu(update, context)
+        return ConversationHandler.END
 
 
 # ============================================================
@@ -175,7 +171,6 @@ async def photo_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def receber_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # recebeu foto = ok
     if update.message.photo:
         file = await update.message.photo[-1].get_file()
         context.user_data["registro"]["photo_file_id"] = file.file_id
@@ -183,7 +178,6 @@ async def receber_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Onde fica o problema?")
         return LOCATION
 
-    # ❌ enviaram texto => mostrar aviso + botões novamente
     keyboard = [
         [
             InlineKeyboardButton("📷 Adicionar foto", callback_data="add_file"),
@@ -196,9 +190,7 @@ async def receber_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
-
     return PHOTO
-
 
 
 # ============================================================
@@ -217,7 +209,6 @@ async def receber_local(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("✅ Registro salvo com sucesso!")
 
-    # volta ao menu
     await send_menu(update, context)
     return ConversationHandler.END
 
