@@ -25,7 +25,7 @@ user_data_store = {}
 
 
 # ============================================================
-# 🧩 MENU PRINCIPAL (mostrado sempre)
+# 🧩 MENU PRINCIPAL — SEMPRE NOVA MENSAGEM
 # ============================================================
 async def send_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -34,22 +34,18 @@ async def send_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    if update.message:
-        await update.message.reply_text(
+    chat = update.effective_chat
+
+    await context.bot.send_message(
+        chat_id=chat.id,
+        text=(
             "👋 *Bem-vindo ao Kernel6 Project!*\n"
             "Ajude a melhorar nossa comunidade...\n\n"
-            "Escolha uma opção:",
-            parse_mode="Markdown",
-            reply_markup=reply_markup
-        )
-    else:
-        await update.callback_query.message.reply_text(
-            "👋 *Bem-vindo ao Kernel6 Project!*\n"
-            "Ajude a melhorar nossa comunidade...\n\n"
-            "Escolha uma opção:",
-            parse_mode="Markdown",
-            reply_markup=reply_markup
-        )
+            "Escolha uma opção:"
+        ),
+        parse_mode="Markdown",
+        reply_markup=reply_markup
+    )
 
 
 # ============================================================
@@ -67,11 +63,12 @@ async def auto_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ============================================================
-# CALLBACKS DO MENU
+# CALLBACKS DO MENU (SEM APAGAR MENSAGENS)
 # ============================================================
 async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    chat_id = query.message.chat_id
 
     # -----------------------------
     # iniciar registro
@@ -90,21 +87,21 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         botoes = [[InlineKeyboardButton(cat, callback_data=f"cat:{cat}")]
                   for cat in categorias]
 
-        await query.edit_message_text(
-            "📝 Qual categoria do registro?",
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="📝 Qual categoria do registro?",
             reply_markup=InlineKeyboardMarkup(botoes)
         )
         return CATEGORIA
 
     # -----------------------------
-    # listar registros — CORRIGIDO
+    # listar registros — NÃO APAGA
     # -----------------------------
     elif query.data == "listar":
-        chat_id = query.message.chat_id
         registros = user_data_store.get(chat_id, [])
 
         if not registros:
-            await query.message.reply_text("📋 Nenhum registro encontrado.")
+            await context.bot.send_message(chat_id, "📋 Nenhum registro encontrado.")
         else:
             msg = "📋 *Registros:*\n\n"
             for i, r in enumerate(registros, 1):
@@ -112,9 +109,8 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 msg += f"   Descrição: {r['descricao']}\n"
                 msg += f"   Local: {r['local']}\n\n"
 
-            await query.message.reply_text(msg, parse_mode="Markdown")
+            await context.bot.send_message(chat_id, msg, parse_mode="Markdown")
 
-        # 🔥 Agora o menu aparece abaixo, sem apagar a lista
         await send_menu(update, context)
         return ConversationHandler.END
 
@@ -125,11 +121,12 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def escolher_categoria(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    chat_id = query.message.chat_id
 
     categoria = query.data.replace("cat:", "")
     context.user_data["registro"] = {"categoria": categoria}
 
-    await query.edit_message_text("Descreva o problema.")
+    await context.bot.send_message(chat_id, "Descreva o problema.")
     return DESCRICAO
 
 
@@ -138,6 +135,7 @@ async def escolher_categoria(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # ============================================================
 async def receber_descricao(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["registro"]["descricao"] = update.message.text
+    chat_id = update.effective_chat.id
 
     keyboard = [
         [
@@ -146,7 +144,8 @@ async def receber_descricao(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
 
-    await update.message.reply_text(
+    await context.bot.send_message(
+        chat_id,
         "Deseja enviar uma foto?",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -159,23 +158,26 @@ async def receber_descricao(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def photo_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    chat_id = query.message.chat_id
 
     if query.data == "skip_file":
         context.user_data["registro"]["photo_file_id"] = None
-        await query.edit_message_text("Onde fica o problema?")
+        await context.bot.send_message(chat_id, "Onde fica o problema?")
         return LOCATION
 
     if query.data == "add_file":
-        await query.edit_message_text("📷 Envie a foto agora.")
+        await context.bot.send_message(chat_id, "📷 Envie a foto agora.")
         return PHOTO
 
 
 async def receber_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+
     if update.message.photo:
         file = await update.message.photo[-1].get_file()
         context.user_data["registro"]["photo_file_id"] = file.file_id
 
-        await update.message.reply_text("Onde fica o problema?")
+        await context.bot.send_message(chat_id, "Onde fica o problema?")
         return LOCATION
 
     keyboard = [
@@ -185,7 +187,8 @@ async def receber_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
 
-    await update.message.reply_text(
+    await context.bot.send_message(
+        chat_id,
         "⚠️ Por favor, envie *uma foto* ou clique em *Pular*.",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -197,18 +200,17 @@ async def receber_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ETAPA 4 — LOCAL
 # ============================================================
 async def receber_local(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+
     local = update.message.text
     context.user_data["registro"]["local"] = local
-
-    chat_id = update.effective_chat.id
 
     if chat_id not in user_data_store:
         user_data_store[chat_id] = []
 
     user_data_store[chat_id].append(context.user_data["registro"])
 
-    await update.message.reply_text("✅ Registro salvo com sucesso!")
-
+    await context.bot.send_message(chat_id, "✅ Registro salvo com sucesso!")
     await send_menu(update, context)
     return ConversationHandler.END
 
@@ -242,9 +244,10 @@ app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(registrar_handler)
 
-# qualquer "oi", "bom dia", etc → abre menu
+# qualquer texto → abre menu
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, auto_menu))
 
+# callbacks finais
 app.add_handler(CallbackQueryHandler(menu_callback))
 
 if __name__ == "__main__":
