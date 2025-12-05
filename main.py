@@ -17,9 +17,6 @@ import json
 import logging
 from datetime import datetime
 import uuid
-import schedule
-import threading
-import time
 
 # Configurar logging
 logging.basicConfig(
@@ -37,7 +34,6 @@ CATEGORIA, DESCRICAO, PHOTO, LOCATION, CONFIRMACAO = range(5)
 # Constantes
 MAX_REGISTROS_POR_USUARIO = 10
 DB_FILE = "registros.json"
-BACKUP_DIR = "backups"
 
 # Banco de dados persistente
 if os.path.exists(DB_FILE):
@@ -45,9 +41,6 @@ if os.path.exists(DB_FILE):
         user_data_store = json.load(f)
 else:
     user_data_store = {}
-
-# Criar diretório de backups
-os.makedirs(BACKUP_DIR, exist_ok=True)
 
 
 # ============================================================
@@ -61,28 +54,6 @@ def save_data():
         logger.info("Dados salvos com sucesso")
     except Exception as e:
         logger.error(f"Erro ao salvar dados: {e}")
-
-
-def backup_diario():
-    """Cria backup diário dos dados"""
-    try:
-        if user_data_store:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            backup_file = os.path.join(BACKUP_DIR, f"backup_{timestamp}.json")
-            with open(backup_file, 'w', encoding='utf-8') as f:
-                json.dump(user_data_store, f, ensure_ascii=False, indent=2)
-            logger.info(f"Backup criado: {backup_file}")
-    except Exception as e:
-        logger.error(f"Erro no backup: {e}")
-
-
-def run_scheduler():
-    """Executa tarefas agendadas em thread separada"""
-    schedule.every().day.at("02:00").do(backup_diario)
-    
-    while True:
-        schedule.run_pending()
-        time.sleep(60)
 
 
 # ============================================================
@@ -509,10 +480,6 @@ app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, auto_menu))
 # Handler de erros (MELHORIA 8)
 app.add_error_handler(error_handler)
 
-# Iniciar scheduler para backup (MELHORIA 10)
-scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
-scheduler_thread.start()
-
 if __name__ == "__main__":
     print("🤖 Bot iniciado com as melhorias solicitadas!")
     print("✅ Melhorias implementadas:")
@@ -521,11 +488,11 @@ if __name__ == "__main__":
     print("   3. ✅ Preview antes de salvar")
     print("   4. ✅ Limite de registros por usuário (10)")
     print("   5. ✅ Timestamps e IDs únicos")
-    print("   7. ✅ /limpar com confirmação (removido - conforme solicitado)")
     print("   8. ✅ Handler de erros")
     print("   9. ✅ /ajuda com instruções")
-    print("  10. ✅ Backup automático diário")
+    print("  10. ✅ Backup manual (salvamento em arquivo)")
     print("❌ Removido: /meusregistros e limpar registros")
+    print("❌ Removido: Agendamento automático (não compatível com Render)")
     
     app.run_webhook(
         listen="0.0.0.0",
