@@ -29,7 +29,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 PORT = int(os.environ.get("PORT", 8443))
 
 # Estados do ConversationHandler
-CATEGORIA, DESCRICAO, PHOTO, LOCATION, CONFIRMACAO = range(5)
+CATEGORIA, TITULO, DESCRICAO, PHOTO, LOCATION, CONFIRMACAO = range(6)  # Adicionado TITULO
 
 # Constantes
 DB_FILE = "problemas.json"
@@ -276,11 +276,11 @@ async def escolher_categoria(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "\"Poste de luz quebrado na Rua das Flores\"",
         parse_mode="Markdown"
     )
-    return DESCRICAO
+    return TITULO  # Mudado para TITULO
 
 
 # ============================================================
-# ETAPA 2 — DESCRIÇÃO (TÍTULO + DESCRIÇÃO)
+# ETAPA 2 — TÍTULO
 # ============================================================
 async def receber_titulo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     titulo = update.message.text.strip()
@@ -292,14 +292,14 @@ async def receber_titulo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⚠️ Título muito curto. Por favor, forneça um título mais descritivo.\n"
             "Exemplo: \"Poste de luz quebrado na Rua das Flores\""
         )
-        return DESCRICAO
+        return TITULO
     
     if len(titulo) > 100:
         await update.message.reply_text(
             "⚠️ Título muito longo. Limite de 100 caracteres.\n"
             "Por favor, resuma o título."
         )
-        return DESCRICAO
+        return TITULO
     
     context.user_data["problema"]["titulo"] = titulo
 
@@ -313,9 +313,12 @@ async def receber_titulo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "- Qualquer detalhe adicional",
         parse_mode="Markdown"
     )
-    return DESCRICAO
+    return DESCRICAO  # Agora vai para DESCRICAO
 
 
+# ============================================================
+# ETAPA 3 — DESCRIÇÃO
+# ============================================================
 async def receber_descricao(update: Update, context: ContextTypes.DEFAULT_TYPE):
     descricao = update.message.text.strip()
     chat_id = update.effective_chat.id
@@ -355,7 +358,7 @@ async def receber_descricao(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ============================================================
-# ETAPA 3 — FOTO
+# ETAPA 4 — FOTO
 # ============================================================
 async def photo_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -417,7 +420,7 @@ async def receber_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ============================================================
-# ETAPA 4 — LOCAL (DESCRIÇÃO DO LOCAL)
+# ETAPA 5 — LOCAL (DESCRIÇÃO DO LOCAL)
 # ============================================================
 async def receber_local(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -564,10 +567,8 @@ registrar_handler = ConversationHandler(
 
     states={
         CATEGORIA: [CallbackQueryHandler(escolher_categoria, pattern="^cat:")],
-        DESCRICAO: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, receber_titulo),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, receber_descricao)
-        ],
+        TITULO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_titulo)],  # Estado separado
+        DESCRICAO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_descricao)],
         PHOTO: [
             CallbackQueryHandler(photo_choice, pattern="^(add_file|skip_file)$"),
             MessageHandler(filters.PHOTO, receber_foto),
@@ -599,6 +600,7 @@ app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, auto_menu))
 app.add_error_handler(error_handler)
 
 if __name__ == "__main__":
+    
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
