@@ -15,7 +15,7 @@ from telegram.ext import (
 import os
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
 
 # Configurar logging
@@ -32,7 +32,6 @@ PORT = int(os.environ.get("PORT", 8443))
 CATEGORIA, DESCRICAO, PHOTO, LOCATION, CONFIRMACAO = range(5)
 
 # Constantes
-MAX_REGISTROS_POR_USUARIO = 10
 DB_FILE = "registros.json"
 
 # Banco de dados persistente
@@ -56,6 +55,13 @@ def save_data():
         logger.error(f"Erro ao salvar dados: {e}")
 
 
+def get_brasilia_time():
+    """Retorna o horário de Brasília (UTC-3)"""
+    utc_now = datetime.utcnow()
+    brasilia_time = utc_now - timedelta(hours=3)
+    return brasilia_time.strftime("%d/%m/%Y %H:%M")
+
+
 # ============================================================
 # 🧩 MENU PRINCIPAL — SEMPRE NOVA MENSAGEM
 # ============================================================
@@ -63,6 +69,7 @@ async def send_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📝 Registrar problema", callback_data="registrar")],
         [InlineKeyboardButton("📋 Listar registros", callback_data="listar")],
+        [InlineKeyboardButton("❓ Ajuda", callback_data="ajuda")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -110,7 +117,6 @@ async def ajuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
 - Forneça descrições detalhadas
 - Envie fotos quando possível
 - Informe o local exato
-- Limite de 10 registros por usuário
 """
     
     await update.message.reply_text(help_text, parse_mode="Markdown")
@@ -136,15 +142,6 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # iniciar registro
     # -----------------------------
     if query.data == "registrar":
-        # Verificar limite de registros (MELHORIA 4)
-        if str(chat_id) in user_data_store and len(user_data_store[str(chat_id)]) >= MAX_REGISTROS_POR_USUARIO:
-            await query.edit_message_text(
-                f"⚠️ Você atingiu o limite de {MAX_REGISTROS_POR_USUARIO} registros.\n"
-                "Não é possível criar novos registros no momento."
-            )
-            await send_menu(update, context)
-            return ConversationHandler.END
-        
         categorias = [
             "Iluminação pública",
             "Limpeza urbana",
@@ -179,13 +176,39 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 msg += f"{i}. *{r['categoria']}*\n"
                 msg += f"   📝 {r['descricao']}\n"
                 msg += f"   📍 {r['local']}\n"
-                msg += f"   📅 {r.get('data', 'Data não registrada')}\n"
-                msg += f"   🆔 ID: {r.get('id', 'N/A')}\n\n"
+                msg += f"   📅 {r.get('data', 'Data não registrada')}\n\n"
 
             await context.bot.send_message(chat_id, msg, parse_mode="Markdown")
 
         await send_menu(update, context)
         return ConversationHandler.END
+    
+    # -----------------------------
+    # ajuda via botão
+    # -----------------------------
+    elif query.data == "ajuda":
+        help_text = """
+🤖 *Como usar o Kernel6 Project:*
+
+📝 *Registrar problema:*
+- Use /start ou escreva qualquer mensagem
+- Selecione "Registrar problema"
+- Siga as instruções passo a passo
+
+📋 *Ver seus registros:*
+- Selecione "Listar registros" no menu
+
+⚡ *Comandros disponíveis:*
+/start - Menu principal
+/ajuda - Esta mensagem
+
+⚠️ *Dicas:*
+- Forneça descrições detalhadas
+- Envie fotos quando possível
+- Informe o local exato
+"""
+        await query.edit_message_text(help_text, parse_mode="Markdown")
+        await send_menu(update, context)
 
 
 # ============================================================
@@ -331,7 +354,7 @@ async def receber_local(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Adicionar metadados (MELHORIA 5)
     context.user_data["registro"]["id"] = str(uuid.uuid4())[:8]
-    context.user_data["registro"]["data"] = datetime.now().strftime("%d/%m/%Y %H:%M")
+    context.user_data["registro"]["data"] = get_brasilia_time()
     context.user_data["registro"]["user_id"] = update.effective_user.id
     
     # Mostrar preview e confirmar (MELHORIA 3)
@@ -351,13 +374,12 @@ async def mostrar_preview_registro(update: Update, context: ContextTypes.DEFAULT
     msg += f"📝 *Descrição:* {registro['descricao']}\n"
     msg += f"📍 *Local:* {registro['local']}\n"
     msg += f"📅 *Data:* {registro['data']}\n"
-    msg += f"🆔 *ID:* {registro['id']}\n"
     msg += f"📷 *Foto:* {'✅ Sim' if registro.get('photo_file_id') else '❌ Não'}\n\n"
-    msg += "Tudo correto?"
+    msg += "*Tudo correto?*"
     
     keyboard = [
         [
-            InlineKeyboardButton("✅ Confirmar e salvar", callback_data="confirm_save"),
+            InlineKeyboardButton("✅ Confirmar", callback_data="confirm_save"),
             InlineKeyboardButton("❌ Cancelar", callback_data="cancel_save")
         ]
     ]
@@ -400,9 +422,7 @@ async def confirmar_registro(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         await query.edit_message_text(
             f"✅ *Registro salvo com sucesso!*\n\n"
-            f"📋 ID do registro: {registro['id']}\n"
-            f"📅 Data: {registro['data']}\n"
-            f"📊 Total de registros: {len(user_data_store[str(chat_id)])}",
+            f"Obrigado por contribuir com a comunidade!",
             parse_mode="Markdown"
         )
         
@@ -446,7 +466,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # HANDLER PRINCIPAL DE REGISTRO
 # ============================================================
 registrar_handler = ConversationHandler(
-    entry_points=[CallbackQueryHandler(menu_callback, pattern="^(registrar|listar)$")],
+    entry_points=[CallbackQueryHandler(menu_callback, pattern="^(registrar|listar|ajuda)$")],
 
     states={
         CATEGORIA: [CallbackQueryHandler(escolher_categoria, pattern="^cat:")],
@@ -481,18 +501,7 @@ app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, auto_menu))
 app.add_error_handler(error_handler)
 
 if __name__ == "__main__":
-    print("🤖 Bot iniciado com as melhorias solicitadas!")
-    print("✅ Melhorias implementadas:")
-    print("   1. ✅ Validação de dados (descrição e local)")
-    print("   2. ✅ Persistência com JSON")
-    print("   3. ✅ Preview antes de salvar")
-    print("   4. ✅ Limite de registros por usuário (10)")
-    print("   5. ✅ Timestamps e IDs únicos")
-    print("   8. ✅ Handler de erros")
-    print("   9. ✅ /ajuda com instruções")
-    print("  10. ✅ Backup manual (salvamento em arquivo)")
-    print("❌ Removido: /meusregistros e limpar registros")
-    print("❌ Removido: Agendamento automático (não compatível com Render)")
+    print("🤖 Bot iniciado!")
     
     app.run_webhook(
         listen="0.0.0.0",
