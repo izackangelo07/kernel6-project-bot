@@ -848,7 +848,7 @@ deletar_handler = ConversationHandler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, deletar_password)
         ],
         DELETE_CHOOSE: [
-            CallbackQueryHandler(deletar_escolha, pattern="^(del:|cancel_delete)$")
+            CallbackQueryHandler(deletar_escolha, pattern="^(del:.+|cancel_delete)$")
         ],
         DELETE_CONFIRM: [
             CallbackQueryHandler(deletar_confirmar, pattern="^(confirm_delete|cancel_delete_confirm)$")
