@@ -212,16 +212,29 @@ async def menu_callback(update, context):
         return ConversationHandler.END
 
     elif data == "delete_menu":
-        # start delete flow via callback
-        # ask for password (use same handler as deletar_command)
+        # CORREÇÃO: Não retornar DELETE_PASSWORD aqui
+        # Em vez disso, inicie o fluxo de delete diretamente
         await context.bot.send_message(chat_id=chat_id, text="🔐 Digite a senha de administrador:")
-        return DELETE_PASSWORD
+        # Retorne ConversationHandler.END e deixe o deletar_handler cuidar
+        return ConversationHandler.END
 
     elif data == "ajuda":
         await ajuda(update, context)
         return ConversationHandler.END
 
     return ConversationHandler.END
+
+
+# Função auxiliar para iniciar delete flow
+async def start_delete_flow(update, context):
+    """Inicia o fluxo de deleção quando chamado do menu"""
+    query = update.callback_query
+    await query.answer()
+    await context.bot.send_message(
+        chat_id=query.message.chat.id,
+        text="🔐 Digite a senha de administrador:"
+    )
+    return DELETE_PASSWORD
 
 
 # =========================
@@ -478,8 +491,10 @@ async def error_handler(update, context):
 
 # ---------- Conversation handler config ----------
 registrar_handler = ConversationHandler(
-    entry_points=[CallbackQueryHandler(menu_callback, pattern="^(registrar|listar|delete_menu|ajuda)$"),
-                  CommandHandler("registrar", registrar_command)],
+    entry_points=[
+        CallbackQueryHandler(menu_callback, pattern="^(registrar|listar|ajuda)$"),
+        CommandHandler("registrar", registrar_command)
+    ],
     states={
         CATEGORIA: [CallbackQueryHandler(escolher_categoria, pattern="^cat:")],
         TITULO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_titulo)],
@@ -495,9 +510,22 @@ registrar_handler = ConversationHandler(
     fallbacks=[]
 )
 
+# Handler separado para deletar via menu
+async def handle_delete_menu(update, context):
+    """Handler específico para quando deletar é acionado do menu"""
+    query = update.callback_query
+    await query.answer()
+    await context.bot.send_message(
+        chat_id=query.message.chat.id,
+        text="🔐 Digite a senha de administrador:"
+    )
+    return DELETE_PASSWORD
+
 deletar_handler = ConversationHandler(
-    entry_points=[CommandHandler("deletar", deletar_command),
-                  CallbackQueryHandler(lambda u, c: c.data == "delete_menu", pattern="^delete_menu$")],
+    entry_points=[
+        CommandHandler("deletar", deletar_command),
+        CallbackQueryHandler(handle_delete_menu, pattern="^delete_menu$")
+    ],
     states={
         DELETE_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, deletar_password)],
         DELETE_CHOOSE: [CallbackQueryHandler(deletar_escolha, pattern="^del:")],
@@ -513,23 +541,31 @@ def main():
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    # Handlers principais
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("ajuda", ajuda))
-    app.add_handler(CommandHandler("registrar", registrar_command))
+    
+    # Handlers de conversação
     app.add_handler(registrar_handler)
-
     app.add_handler(deletar_handler)
-
+    
+    # Handler para mensagens de texto (menu automático)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, auto_menu))
-
+    
+    # Handler de erros
     app.add_error_handler(error_handler)
 
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=int(os.environ.get("PORT", 8443)),
-        url_path="",
-        webhook_url=f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/"
-    )
+    # No Render, usar polling é mais seguro que webhook
+    logger.info("Bot iniciando com polling...")
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    
+    # Alternativa se quiser usar webhook (mais complexo no Render):
+    # app.run_webhook(
+    #     listen="0.0.0.0",
+    #     port=int(os.environ.get("PORT", 8443)),
+    #     url_path=BOT_TOKEN,
+    #     webhook_url=f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/{BOT_TOKEN}"
+    # )
 
 
 if __name__ == "__main__":
