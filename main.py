@@ -763,6 +763,7 @@ async def deletar_confirmar(update, context):
         return DELETE_CHOOSE
     
     elif query.data == "confirm_delete":
+        global problemas_store
         reg_id = context.user_data.get("delete_id")
         
         if not reg_id:
@@ -786,7 +787,6 @@ async def deletar_confirmar(update, context):
             return ConversationHandler.END
         
         # Atualizar a lista global
-        global problemas_store
         problemas_store = novos_problemas
         
         # Salvar no Gist
