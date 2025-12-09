@@ -90,6 +90,7 @@ def load_from_gist():
         problemas_store = []
 
 def save_to_gist():
+    global problemas_store
     try:
         if not GIST_TOKEN or not GIST_ID:
             logger.warning("GIST_TOKEN ou GIST_ID não definidos. Salvando localmente.")
@@ -649,7 +650,6 @@ async def deletar_password(update, context):
         )
         return ConversationHandler.END
 
-    global problemas_store
     if not problemas_store:
         keyboard = [[InlineKeyboardButton("⬅️ Voltar ao menu", callback_data="voltar_menu")]]
         await update.message.reply_text(
@@ -663,7 +663,6 @@ async def deletar_password(update, context):
     for idx, p in enumerate(problemas_store, 1):
         titulo = p.get("titulo", "Sem título")
         local = p.get("descricao_local", "Sem local")
-        categoria = p.get("categoria", "")
         
         # Criar texto curto para o botão
         texto_titulo = titulo[:15] + "..." if len(titulo) > 15 else titulo
