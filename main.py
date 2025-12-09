@@ -618,7 +618,7 @@ async def confirmar_registro(update, context):
 
 
 # =========================
-# Delete flow handlers - CORRIGIDO
+# Delete flow handlers - TOTALMENTE REFEITO
 # =========================
 async def deletar_command(update, context):
     keyboard = [[InlineKeyboardButton("⬅️ Voltar ao menu", callback_data="voltar_menu")]]
@@ -658,26 +658,25 @@ async def deletar_password(update, context):
         )
         return ConversationHandler.END
 
-    # Criar botões com os registros - AGORA COM ENDEREÇO
+    # Criar botões com os registros - Título e Local
     botoes = []
-    for p in problemas_store:
+    for idx, p in enumerate(problemas_store, 1):
         titulo = p.get("titulo", "Sem título")
         local = p.get("descricao_local", "Sem local")
+        categoria = p.get("categoria", "")
         
-        # Limitar tamanho do texto para caber no botão
-        if len(titulo) > 20:
-            titulo = titulo[:17] + "..."
-        if len(local) > 20:
-            local = local[:17] + "..."
+        # Criar texto curto para o botão
+        texto_titulo = titulo[:15] + "..." if len(titulo) > 15 else titulo
+        texto_local = local[:10] + "..." if len(local) > 10 else local
         
-        # Texto do botão: "Título - Local"
-        texto_botao = f"{titulo} - {local}"
+        # Texto do botão: "idx. Título - Local"
+        texto_botao = f"{idx}. {texto_titulo} - {texto_local}"
         botoes.append([InlineKeyboardButton(texto_botao, callback_data=f"del:{p['id']}")])
     
-    botoes.append([InlineKeyboardButton("⬅️ Voltar", callback_data="voltar_senha")])
+    botoes.append([InlineKeyboardButton("⬅️ Cancelar", callback_data="cancel_delete")])
 
     await update.message.reply_text(
-        "🗑 *Selecione o registro que deseja excluir:*",
+        "🗑 *Selecione o registro para excluir:*\n\n📋 *Legenda:* Título - Local",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(botoes)
     )
@@ -688,41 +687,49 @@ async def deletar_escolha(update, context):
     query = update.callback_query
     await query.answer()
 
-    if query.data == "voltar_senha":
-        keyboard = [[InlineKeyboardButton("⬅️ Voltar ao menu", callback_data="voltar_menu")]]
-        await context.bot.send_message(
-            query.message.chat.id,
-            "🔐 Digite a senha de administrador:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return DELETE_PASSWORD
+    if query.data == "cancel_delete":
+        await query.message.reply_text("❌ Exclusão cancelada.")
+        await send_menu(update, context)
+        return ConversationHandler.END
     
     # Extrair ID do registro
     if query.data.startswith("del:"):
         reg_id = query.data.split(":")[1]
+        
+        # Encontrar o registro
+        registro = None
+        for p in problemas_store:
+            if p["id"] == reg_id:
+                registro = p
+                break
+        
+        if not registro:
+            await query.message.reply_text("❌ Registro não encontrado.")
+            await send_menu(update, context)
+            return ConversationHandler.END
+        
+        # Salvar o ID no contexto
         context.user_data["delete_id"] = reg_id
-
-        # Encontrar o registro para mostrar detalhes
-        registro = next((p for p in problemas_store if p["id"] == reg_id), None)
-        if registro:
-            detalhes = (
-                f"🗑 *Confirmar exclusão*\n\n"
-                f"📁 *Categoria:* {registro.get('categoria','-')}\n"
-                f"📝 *Título:* {registro.get('titulo','-')}\n"
-                f"📍 *Local:* {registro.get('descricao_local','-')}\n"
-                f"📅 *Data:* {registro.get('created_at_formatted','-')}\n"
-            )
-        else:
-            detalhes = "Registro não encontrado."
+        
+        # Mostrar detalhes do registro
+        detalhes = (
+            f"🗑 *CONFIRMAR EXCLUSÃO*\n\n"
+            f"📁 *Categoria:* {registro.get('categoria', '-')}\n"
+            f"📝 *Título:* {registro.get('titulo', '-')}\n"
+            f"📄 *Descrição:* {registro.get('descricao', '-')[:50]}...\n"
+            f"📍 *Local:* {registro.get('descricao_local', '-')}\n"
+            f"📅 *Data:* {registro.get('created_at_formatted', '-')}\n"
+            f"📊 *Status:* {format_status(registro.get('status', ''))}\n\n"
+            f"⚠️ *Esta ação não pode ser desfeita!*"
+        )
 
         keyboard = [
-            [InlineKeyboardButton("✅ Sim, excluir", callback_data="delconf:yes"),
-             InlineKeyboardButton("❌ Não, cancelar", callback_data="delconf:no")],
-            [InlineKeyboardButton("⬅️ Voltar", callback_data="voltar_escolha")]
+            [InlineKeyboardButton("✅ SIM, EXCLUIR", callback_data="confirm_delete"),
+             InlineKeyboardButton("❌ NÃO, CANCELAR", callback_data="cancel_delete_confirm")]
         ]
         
         await query.message.reply_text(
-            f"{detalhes}\n\n⚠ Tem certeza que deseja apagar este registro?\n*Esta ação não poderá ser desfeita!*",
+            detalhes,
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -735,55 +742,69 @@ async def deletar_confirmar(update, context):
     query = update.callback_query
     await query.answer()
     
-    global problemas_store
-
-    if query.data == "delconf:no" or query.data == "voltar_escolha":
-        # Voltar para escolha de registro
+    if query.data == "cancel_delete_confirm":
+        # Voltar para lista de registros
         botoes = []
-        for p in problemas_store:
+        for idx, p in enumerate(problemas_store, 1):
             titulo = p.get("titulo", "Sem título")
             local = p.get("descricao_local", "Sem local")
             
-            if len(titulo) > 20:
-                titulo = titulo[:17] + "..."
-            if len(local) > 20:
-                local = local[:17] + "..."
-            
-            texto_botao = f"{titulo} - {local}"
+            texto_titulo = titulo[:15] + "..." if len(titulo) > 15 else titulo
+            texto_local = local[:10] + "..." if len(local) > 10 else local
+            texto_botao = f"{idx}. {texto_titulo} - {texto_local}"
             botoes.append([InlineKeyboardButton(texto_botao, callback_data=f"del:{p['id']}")])
         
-        botoes.append([InlineKeyboardButton("⬅️ Voltar", callback_data="voltar_senha")])
+        botoes.append([InlineKeyboardButton("⬅️ Cancelar", callback_data="cancel_delete")])
         
         await query.message.reply_text(
-            "🗑 *Selecione o registro que deseja excluir:*",
+            "🗑 *Selecione o registro para excluir:*\n\n📋 *Legenda:* Título - Local",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(botoes)
         )
         return DELETE_CHOOSE
-
-    elif query.data == "delconf:yes":
+    
+    elif query.data == "confirm_delete":
         reg_id = context.user_data.get("delete_id")
+        
         if not reg_id:
-            await query.message.reply_text("❌ Erro interno.")
+            await query.message.reply_text("❌ Erro: ID do registro não encontrado.")
             await send_menu(update, context)
             return ConversationHandler.END
-
-        # Encontrar o registro para mostrar qual foi deletado
-        registro = next((p for p in problemas_store if p["id"] == reg_id), None)
         
-        # Remover da lista
-        problemas_store = [p for p in problemas_store if p["id"] != reg_id]
+        # Encontrar e remover o registro
+        registro_removido = None
+        novos_problemas = []
+        
+        for p in problemas_store:
+            if p["id"] == reg_id:
+                registro_removido = p
+            else:
+                novos_problemas.append(p)
+        
+        if not registro_removido:
+            await query.message.reply_text("❌ Registro não encontrado.")
+            await send_menu(update, context)
+            return ConversationHandler.END
+        
+        # Atualizar a lista global
+        global problemas_store
+        problemas_store = novos_problemas
+        
+        # Salvar no Gist
         save_to_gist()
-
-        if registro:
-            mensagem = f"🗑 *Registro excluído com sucesso!*\n\n📝 *Título:* {registro.get('titulo', '-')}\n📍 *Local:* {registro.get('descricao_local', '-')}"
-        else:
-            mensagem = "🗑 Registro excluído com sucesso!"
-            
+        
+        # Mensagem de confirmação
+        mensagem = (
+            f"✅ *Registro excluído com sucesso!*\n\n"
+            f"📝 *Título:* {registro_removido.get('titulo', '-')}\n"
+            f"📍 *Local:* {registro_removido.get('descricao_local', '-')}\n"
+            f"📅 *Data:* {registro_removido.get('created_at_formatted', '-')}"
+        )
+        
         await query.message.reply_text(mensagem, parse_mode="Markdown")
         await send_menu(update, context)
         return ConversationHandler.END
-
+    
     return ConversationHandler.END
 
 
@@ -837,7 +858,7 @@ registrar_handler = ConversationHandler(
     per_user=True
 )
 
-# Handler para deletar registros - CORRIGIDO
+# Handler para deletar registros - TOTALMENTE REFEITO
 async def start_delete_from_menu(update, context):
     """Handler especial para iniciar deleção do menu"""
     query = update.callback_query
@@ -859,14 +880,14 @@ deletar_handler = ConversationHandler(
     ],
     states={
         DELETE_PASSWORD: [
-            CallbackQueryHandler(menu_callback, pattern="^voltar_menu$"),  # CORREÇÃO AQUI
+            CallbackQueryHandler(menu_callback, pattern="^voltar_menu$"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, deletar_password)
         ],
         DELETE_CHOOSE: [
-            CallbackQueryHandler(deletar_escolha, pattern="^(del:|voltar_senha)$")
+            CallbackQueryHandler(deletar_escolha, pattern="^(del:|cancel_delete)$")
         ],
         DELETE_CONFIRM: [
-            CallbackQueryHandler(deletar_confirmar, pattern="^(delconf:yes|delconf:no|voltar_escolha)$")
+            CallbackQueryHandler(deletar_confirmar, pattern="^(confirm_delete|cancel_delete_confirm)$")
         ]
     },
     fallbacks=[],
