@@ -1,15 +1,15 @@
 from telegram import (
-    Update, 
-    InlineKeyboardButton, 
+    Update,
+    InlineKeyboardButton,
     InlineKeyboardMarkup
 )
 from telegram.ext import (
-    ApplicationBuilder, 
-    CommandHandler, 
+    ApplicationBuilder,
+    CommandHandler,
     CallbackQueryHandler,
-    MessageHandler, 
+    MessageHandler,
     ConversationHandler,
-    ContextTypes, 
+    ContextTypes,
     filters
 )
 import os
@@ -29,7 +29,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 PORT = int(os.environ.get("PORT", 8443))
 
 # Estados do ConversationHandler
-CATEGORIA, TITULO, DESCRICAO, PHOTO, LOCATION, CONFIRMACAO = range(6)  # Adicionado TITULO
+CATEGORIA, TITULO, DESCRICAO, PHOTO, LOCATION, CONFIRMACAO = range(6)
 
 # Constantes
 DB_FILE = "problemas.json"
@@ -46,16 +46,20 @@ CATEGORIAS = [
     "Outro"
 ]
 
-# Banco de dados persistente
+# Banco de dados persistente (JSON)
 if os.path.exists(DB_FILE):
-    with open(DB_FILE, 'r', encoding='utf-8') as f:
-        problemas_store = json.load(f)
+    try:
+        with open(DB_FILE, 'r', encoding='utf-8') as f:
+            problemas_store = json.load(f)
+    except Exception as e:
+        logger.error(f"Erro ao ler {DB_FILE}: {e}")
+        problemas_store = []
 else:
     problemas_store = []
 
 
 # ============================================================
-# FUNÇÕES DE PERSISTÊNCIA
+# FUNÇÕES DE PERSISTÊNCIA E AUXILIARES
 # ============================================================
 def save_data():
     """Salva dados no arquivo JSON"""
@@ -75,7 +79,7 @@ def get_brasilia_time():
 
 
 def get_uuid():
-    """Gera um UUID no formato da tabela"""
+    """Gera um UUID"""
     return str(uuid.uuid4())
 
 
@@ -91,7 +95,7 @@ def format_status(status):
 
 
 # ============================================================
-# 🧩 MENU PRINCIPAL — SEMPRE NOVA MENSAGEM
+# MENU PRINCIPAL — SEMPRE NOVA MENSAGEM
 # ============================================================
 async def send_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -102,17 +106,22 @@ async def send_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     chat = update.effective_chat
+    if not chat:
+        # fallback: try extract from callback_query
+        if update.callback_query and update.callback_query.message:
+            chat = update.callback_query.message.chat
 
-    await context.bot.send_message(
-        chat_id=chat.id,
-        text=(
-            "👋 *Bem-vindo ao Kernel6 Project!*\n"
-            "Ajude a melhorar nossa comunidade...\n\n"
-            "Escolha uma opção:"
-        ),
-        parse_mode="Markdown",
-        reply_markup=reply_markup
-    )
+    if chat:
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text=(
+                "👋 *Bem-vindo ao Kernel6 Project!*\n"
+                "Ajude a melhorar nossa comunidade...\n\n"
+                "Escolha uma opção:"
+            ),
+            parse_mode="Markdown",
+            reply_markup=reply_markup
+        )
 
 
 # ============================================================
@@ -123,41 +132,40 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ============================================================
-# /ajuda - NOVO COMANDO
+# /ajuda
 # ============================================================
 async def ajuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    help_text = """
-🤖 *Como usar o Kernel6 Project:*
-
-📝 *Registrar problema:*
-- Use /start ou escreva qualquer mensagem
-- Selecione "Registrar problema" no menu
-- Siga as instruções passo a passo
-
-📋 *Ver todos os registros:*
-- Selecione "Listar registros" no menu
-
-⚡ *Comandos disponíveis:*
-/start - Menu principal
-/ajuda - Esta mensagem
-/registrar - Iniciar novo registro (também disponível no menu)
-
-⚠️ *Dicas:*
-- Forneça descrições detalhadas
-- Envie fotos quando possível
-- Informe o local exato
-"""
-    
-    await update.message.reply_text(help_text, parse_mode="Markdown")
+    help_text = (
+        "🤖 *Como usar o Kernel6 Project:*\n\n"
+        "📝 *Registrar problema:*\n"
+        "- Use /start ou escreva qualquer mensagem\n"
+        "- Selecione \"Registrar problema\" no menu\n"
+        "- Siga as instruções passo a passo\n\n"
+        "📋 *Ver todos os registros:*\n"
+        "- Selecione \"Listar registros\" no menu\n\n"
+        "⚡ *Comandos disponíveis:*\n"
+        "/start - Menu principal\n"
+        "/ajuda - Esta mensagem\n"
+        "/registrar - Iniciar novo registro (também disponível no menu)\n\n"
+        "⚠️ *Dicas:*\n"
+        "- Forneça descrições detalhadas\n"
+        "- Envie fotos quando possível\n"
+        "- Informe o local exato\n"
+    )
+    # send help and menu
+    if update.message:
+        await update.message.reply_text(help_text, parse_mode="Markdown")
+    elif update.callback_query and update.callback_query.message:
+        await update.callback_query.message.reply_text(help_text, parse_mode="Markdown")
     await send_menu(update, context)
 
 
 # ============================================================
-# /registrar - COMANDO DIRETO PARA REGISTRAR
+# /registrar - iniciar diretamente
 # ============================================================
 async def registrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    
+
     botoes = [[InlineKeyboardButton(cat, callback_data=f"cat:{cat}")]
               for cat in CATEGORIAS]
 
@@ -166,30 +174,32 @@ async def registrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text="📝 Qual categoria do problema?",
         reply_markup=InlineKeyboardMarkup(botoes)
     )
-    
-    # Setar o estado manualmente
+
+    # marcar que entrou na conversa (opcional)
     context.user_data["in_conversation"] = True
     return CATEGORIA
 
 
 # ============================================================
-# MENU AUTOMÁTICO SEM COMANDO
+# MENU AUTOMÁTICO PARA QUALQUER TEXTO
 # ============================================================
 async def auto_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Ignore commands
+    if update.message and update.message.text and update.message.text.startswith("/"):
+        return
     await send_menu(update, context)
 
 
 # ============================================================
-# CALLBACKS DO MENU (SEM APAGAR MENSAGENS)
+# CALLBACKS DO MENU
 # ============================================================
 async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    chat_id = query.message.chat_id
+    chat = query.message.chat
+    chat_id = chat.id
 
-    # -----------------------------
     # iniciar registro
-    # -----------------------------
     if query.data == "registrar":
         botoes = [[InlineKeyboardButton(cat, callback_data=f"cat:{cat}")]
                   for cat in CATEGORIAS]
@@ -201,58 +211,53 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return CATEGORIA
 
-    # -----------------------------
-    # listar registros — TODOS OS REGISTROS
-    # -----------------------------
+    # listar todos os registros
     elif query.data == "listar":
         if not problemas_store:
             await context.bot.send_message(chat_id, "📋 Nenhum problema registrado ainda.")
         else:
-            # Ordenar por data mais recente primeiro
-            problemas_ordenados = sorted(problemas_store, 
-                                        key=lambda x: x.get('created_at', ''), 
-                                        reverse=True)
-            
+            problemas_ordenados = sorted(
+                problemas_store,
+                key=lambda x: x.get('created_at', ''),
+                reverse=True
+            )
             msg = "📋 *Todos os Problemas Registrados:*\n\n"
             for i, p in enumerate(problemas_ordenados, 1):
-                msg += f"*{i}. {p['categoria']}*\n"
-                msg += f"📝 *Título:* {p['titulo']}\n"
-                msg += f"📍 *Local:* {p['descricao_local']}\n"
-                msg += f"📅 *Criado:* {p.get('created_at_formatted', p.get('created_at', ''))}\n"
-                msg += f"📊 *Status:* {format_status(p['status'])}\n\n"
+                msg += f"*{i}. {p.get('categoria','-')}*\n"
+                msg += f"📝 *Título:* {p.get('titulo','-')}\n"
+                msg += f"📍 *Local:* {p.get('descricao_local','-')}\n"
+                msg += f"📅 *Criado:* {p.get('created_at_formatted', p.get('created_at','-'))}\n"
+                msg += f"📊 *Status:* {format_status(p.get('status',''))}\n\n"
 
             await context.bot.send_message(chat_id, msg, parse_mode="Markdown")
 
         await send_menu(update, context)
         return ConversationHandler.END
-    
-    # -----------------------------
+
     # ajuda via botão
-    # -----------------------------
     elif query.data == "ajuda":
-        help_text = """
-🤖 *Como usar o Kernel6 Project:*
-
-📝 *Registrar problema:*
-- Use /start ou escreva qualquer mensagem
-- Selecione "Registrar problema" no menu
-- Siga as instruções passo a passo
-
-📋 *Ver todos os registros:*
-- Selecione "Listar registros" no menu
-
-⚡ *Comandos disponíveis:*
-/start - Menu principal
-/ajuda - Esta mensagem
-/registrar - Iniciar novo registro
-
-⚠️ *Dicas:*
-- Forneça descrições detalhadas
-- Envie fotos quando possível
-- Informe o local exato
-"""
-        await query.edit_message_text(help_text, parse_mode="Markdown")
+        help_text = (
+            "🤖 *Como usar o Kernel6 Project:*\n\n"
+            "📝 *Registrar problema:*\n"
+            "- Use /start ou escreva qualquer mensagem\n"
+            "- Selecione \"Registrar problema\" no menu\n"
+            "- Siga as instruções passo a passo\n\n"
+            "📋 *Ver todos os registros:*\n"
+            "- Selecione \"Listar registros\" no menu\n\n"
+            "⚡ *Comandos disponíveis:*\n"
+            "/start - Menu principal\n"
+            "/ajuda - Esta mensagem\n"
+            "/registrar - Iniciar novo registro\n\n"
+            "⚠️ *Dicas:*\n"
+            "- Forneça descrições detalhadas\n"
+            "- Envie fotos quando possível\n"
+            "- Informe o local exato\n"
+        )
+        await context.bot.send_message(chat_id, help_text, parse_mode="Markdown")
         await send_menu(update, context)
+        return ConversationHandler.END
+
+    return ConversationHandler.END
 
 
 # ============================================================
@@ -261,46 +266,46 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def escolher_categoria(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    chat_id = query.message.chat_id
+    chat = query.message.chat
+    chat_id = chat.id
 
     categoria = query.data.replace("cat:", "")
     context.user_data["problema"] = {
         "categoria": categoria,
-        "status": STATUS_PENDENTE  # Sempre pendente inicialmente
+        "status": STATUS_PENDENTE
     }
 
     await context.bot.send_message(
-        chat_id, 
+        chat_id,
         "📝 *Forneça um título para o problema:*\n\n"
         "Seja claro e objetivo. Exemplo:\n"
         "\"Poste de luz quebrado na Rua das Flores\"",
         parse_mode="Markdown"
     )
-    return TITULO  # Mudado para TITULO
+    return TITULO
 
 
 # ============================================================
 # ETAPA 2 — TÍTULO
 # ============================================================
 async def receber_titulo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    titulo = update.message.text.strip()
+    titulo = (update.message.text or "").strip()
     chat_id = update.effective_chat.id
-    
-    # Validação do título
+
     if len(titulo) < 3:
         await update.message.reply_text(
             "⚠️ Título muito curto. Por favor, forneça um título mais descritivo.\n"
             "Exemplo: \"Poste de luz quebrado na Rua das Flores\""
         )
         return TITULO
-    
+
     if len(titulo) > 100:
         await update.message.reply_text(
             "⚠️ Título muito longo. Limite de 100 caracteres.\n"
             "Por favor, resuma o título."
         )
         return TITULO
-    
+
     context.user_data["problema"]["titulo"] = titulo
 
     await context.bot.send_message(
@@ -313,31 +318,30 @@ async def receber_titulo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "- Qualquer detalhe adicional",
         parse_mode="Markdown"
     )
-    return DESCRICAO  # Agora vai para DESCRICAO
+    return DESCRICAO
 
 
 # ============================================================
 # ETAPA 3 — DESCRIÇÃO
 # ============================================================
 async def receber_descricao(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    descricao = update.message.text.strip()
+    descricao = (update.message.text or "").strip()
     chat_id = update.effective_chat.id
-    
-    # Validação da descrição
+
     if len(descricao) < 10:
         await update.message.reply_text(
             "⚠️ Descrição muito curta. Por favor, forneça mais detalhes.\n"
             "Descreva o problema com mais informações."
         )
         return DESCRICAO
-    
+
     if len(descricao) > 1000:
         await update.message.reply_text(
             "⚠️ Descrição muito longa. Limite de 1000 caracteres.\n"
             "Por favor, resuma a informação."
         )
         return DESCRICAO
-    
+
     context.user_data["problema"]["descricao"] = descricao
 
     keyboard = [
@@ -358,12 +362,13 @@ async def receber_descricao(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ============================================================
-# ETAPA 4 — FOTO
+# ETAPA 4 — FOTO (corrigida)
 # ============================================================
 async def photo_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    chat_id = query.message.chat_id
+    chat = query.message.chat
+    chat_id = chat.id
 
     if query.data == "skip_file":
         context.user_data["problema"]["photo_file_id"] = None
@@ -389,8 +394,10 @@ async def photo_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def receber_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
+    # Caso foto
     if update.message.photo:
         file = await update.message.photo[-1].get_file()
+        # salvamos o file_id (pode ser usado depois)
         context.user_data["problema"]["photo_file_id"] = file.file_id
 
         await context.bot.send_message(
@@ -402,6 +409,7 @@ async def receber_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return LOCATION
 
+    # Caso texto (usuário enviou texto em vez de foto) => aviso + botões novamente
     keyboard = [
         [
             InlineKeyboardButton("📷 Adicionar foto", callback_data="add_file"),
@@ -424,24 +432,23 @@ async def receber_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ============================================================
 async def receber_local(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    descricao_local = update.message.text.strip()
-    
-    # Validação do local
+    descricao_local = (update.message.text or "").strip()
+
     if len(descricao_local) < 5:
         await update.message.reply_text(
             "⚠️ Local muito vago. Por favor, forneça um endereço ou ponto de referência mais específico.\n"
             "Exemplo: \"Esquina da Rua das Flores com Avenida Principal, número 123\""
         )
         return LOCATION
-    
+
     context.user_data["problema"]["descricao_local"] = descricao_local
-    
-    # Adicionar metadados
+
+    # Metadados
     created_at = get_brasilia_time()
     created_at_formatted = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S").strftime("%d/%m/%Y %H:%M")
-    
+
     context.user_data["problema"].update({
-        "id": get_uuid(),  # UUID no formato da tabela
+        "id": get_uuid(),
         "user_id": update.effective_user.id,
         "chat_id": chat_id,
         "latitude": None,
@@ -450,36 +457,37 @@ async def receber_local(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "created_at_formatted": created_at_formatted,
         "updated_at": created_at
     })
-    
-    # Mostrar preview e confirmar
+
+    # Mostrar preview e confirmação
     await mostrar_preview_problema(update, context)
     return CONFIRMACAO
 
 
 # ============================================================
-# PREVIEW E CONFIRMAÇÃO
+# PREVIEW E CONFIRMAÇÃO (não edita mensagens de foto)
 # ============================================================
 async def mostrar_preview_problema(update: Update, context: ContextTypes.DEFAULT_TYPE):
     problema = context.user_data["problema"]
     chat_id = update.effective_chat.id
-    
+
     msg = "📋 *Confirme os dados do problema:*\n\n"
-    msg += f"📁 *Categoria:* {problema['categoria']}\n"
-    msg += f"📝 *Título:* {problema['titulo']}\n"
-    msg += f"📄 *Descrição:* {problema['descricao']}\n"
-    msg += f"📍 *Local:* {problema['descricao_local']}\n"
-    msg += f"📅 *Data:* {problema['created_at_formatted']}\n"
-    msg += f"📊 *Status:* {format_status(problema['status'])}\n"
+    msg += f"📁 *Categoria:* {problema.get('categoria','-')}\n"
+    msg += f"📝 *Título:* {problema.get('titulo','-')}\n"
+    msg += f"📄 *Descrição:* {problema.get('descricao','-')}\n"
+    msg += f"📍 *Local:* {problema.get('descricao_local','-')}\n"
+    msg += f"📅 *Data:* {problema.get('created_at_formatted','-')}\n"
+    msg += f"📊 *Status:* {format_status(problema.get('status',''))}\n"
     msg += f"📷 *Foto:* {'✅ Sim' if problema.get('photo_file_id') else '❌ Não'}\n\n"
     msg += "*Tudo correto?*"
-    
+
     keyboard = [
         [
             InlineKeyboardButton("✅ Confirmar", callback_data="confirm_save"),
             InlineKeyboardButton("❌ Cancelar", callback_data="cancel_save")
         ]
     ]
-    
+
+    # Se tiver foto, enviamos a foto com legenda (não iremos editar essa mensagem na confirmação)
     if problema.get('photo_file_id'):
         try:
             await context.bot.send_photo(
@@ -490,9 +498,10 @@ async def mostrar_preview_problema(update: Update, context: ContextTypes.DEFAULT
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return
-        except:
-            pass  # Se falhar, enviar apenas texto
-    
+        except Exception as e:
+            logger.warning(f"Falha ao enviar foto no preview: {e}")
+
+    # Caso não tenha foto ou falhe, envia apenas texto
     await context.bot.send_message(
         chat_id=chat_id,
         text=msg,
@@ -501,40 +510,58 @@ async def mostrar_preview_problema(update: Update, context: ContextTypes.DEFAULT
     )
 
 
+# ============================================================
+# CONFIRMAR / CANCELAR (NÃO EDITA MENSAGENS DE MÍDIA)
+# ============================================================
 async def confirmar_registro(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    chat_id = query.message.chat_id
-    
+    # obtenha chat_id de forma segura
+    if query.message:
+        chat_id = query.message.chat.id
+    else:
+        chat_id = update.effective_chat.id if update.effective_chat else None
+
     if query.data == "confirm_save":
-        problema = context.user_data["problema"]
-        
-        # Salvar no armazenamento
+        problema = context.user_data.get("problema")
+        if not problema:
+            await context.bot.send_message(chat_id, "❌ Nenhum problema encontrado para salvar.")
+            await send_menu(update, context)
+            return ConversationHandler.END
+
+        # Salvar
         problemas_store.append(problema)
         save_data()
-        
-        await query.edit_message_text(
-            f"✅ *Problema registrado com sucesso!*\n\n"
-            f"O problema foi registrado e está *{problema['status']}* para análise.\n"
-            f"Você pode ver todos os registros na listagem.",
+
+        # Envia nova mensagem (não edita) — evita erro ao confirmar quando preview foi foto
+        await context.bot.send_message(
+            chat_id,
+            "✅ *Problema registrado com sucesso!*\n\n"
+            f"Status atual: {format_status(problema.get('status',''))}\n"
+            "Você pode visualizar na listagem.",
             parse_mode="Markdown"
         )
-        
+
         # Limpar dados temporários
         context.user_data.pop("problema", None)
-        
+
         await send_menu(update, context)
         return ConversationHandler.END
-    
+
     elif query.data == "cancel_save":
+        # Limpar dados temporários
         context.user_data.pop("problema", None)
-        await query.edit_message_text(
-            "❌ *Registro cancelado.*\n\n"
-            "Os dados não foram salvos.",
+
+        await context.bot.send_message(
+            chat_id,
+            "❌ *Registro cancelado.*\n\nNenhum dado foi salvo.",
             parse_mode="Markdown"
         )
+
         await send_menu(update, context)
         return ConversationHandler.END
+
+    return ConversationHandler.END
 
 
 # ============================================================
@@ -543,7 +570,7 @@ async def confirmar_registro(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Manipula erros do bot"""
     logger.error(f"Erro: {context.error}", exc_info=context.error)
-    
+
     try:
         if update and update.effective_chat:
             await context.bot.send_message(
@@ -557,17 +584,16 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ============================================================
-# HANDLER PRINCIPAL DE REGISTRO
+# CONFIGURAÇÃO DO ConversationHandler
 # ============================================================
 registrar_handler = ConversationHandler(
     entry_points=[
         CallbackQueryHandler(menu_callback, pattern="^(registrar|listar|ajuda)$"),
         CommandHandler("registrar", registrar)
     ],
-
     states={
         CATEGORIA: [CallbackQueryHandler(escolher_categoria, pattern="^cat:")],
-        TITULO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_titulo)],  # Estado separado
+        TITULO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_titulo)],
         DESCRICAO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_descricao)],
         PHOTO: [
             CallbackQueryHandler(photo_choice, pattern="^(add_file|skip_file)$"),
@@ -577,13 +603,12 @@ registrar_handler = ConversationHandler(
         LOCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_local)],
         CONFIRMACAO: [CallbackQueryHandler(confirmar_registro, pattern="^(confirm_save|cancel_save)$")],
     },
-
     fallbacks=[]
 )
 
 
 # ============================================================
-# APP / WEBHOOK
+# INICIALIZAÇÃO DO BOT
 # ============================================================
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
@@ -593,17 +618,16 @@ app.add_handler(CommandHandler("ajuda", ajuda))
 app.add_handler(CommandHandler("registrar", registrar))
 app.add_handler(registrar_handler)
 
-# qualquer texto → abre menu
+# qualquer texto → abre menu (exceto comandos)
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, auto_menu))
 
 # Handler de erros
 app.add_error_handler(error_handler)
 
 if __name__ == "__main__":
-    
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
         url_path="",
-        webhook_url=f"https://{os.environ['RENDER_EXTERNAL_HOSTNAME']}/",
+        webhook_url=f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/",
     )
