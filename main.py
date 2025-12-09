@@ -647,6 +647,7 @@ async def deletar_password(update, context):
         )
         return ConversationHandler.END
 
+    global problemas_store
     if not problemas_store:
         keyboard = [[InlineKeyboardButton("⬅️ Voltar ao menu", callback_data="voltar_menu")]]
         await update.message.reply_text(
@@ -687,6 +688,7 @@ async def deletar_escolha(update, context):
         )
         return DELETE_PASSWORD
     
+    global problemas_store
     reg_id = query.data.split(":")[1]
     context.user_data["delete_id"] = reg_id
 
@@ -707,6 +709,8 @@ async def deletar_escolha(update, context):
 async def deletar_confirmar(update, context):
     query = update.callback_query
     await query.answer()
+    
+    global problemas_store  # Declaração global no início da função
 
     if query.data == "delconf:no" or query.data == "voltar_escolha":
         # Voltar para escolha de registro
@@ -733,7 +737,6 @@ async def deletar_confirmar(update, context):
             await send_menu(update, context)
             return ConversationHandler.END
 
-        global problemas_store
         problemas_store = [p for p in problemas_store if p["id"] != reg_id]
         save_to_gist()
 
