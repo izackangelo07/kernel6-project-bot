@@ -33,10 +33,7 @@ GIST_FILENAME = os.getenv("GIST_FILENAME", "registros.json")
 
 if not BOT_TOKEN:
     logger.error("BOT_TOKEN não definido")
-if not GIST_TOKEN:
-    logger.error("GIST_TOKEN não definido")
-if not GIST_ID:
-    logger.error("GIST_ID não definido")
+    raise ValueError("BOT_TOKEN não definido")
 
 # ---------- Conversation states ----------
 CATEGORIA, TITULO, DESCRICAO, PHOTO, LOCATION, CONFIRMACAO = range(6)
@@ -68,6 +65,11 @@ def gist_headers():
 def load_from_gist():
     global problemas_store
     try:
+        if not GIST_TOKEN or not GIST_ID:
+            logger.warning("GIST_TOKEN ou GIST_ID não definidos. Usando armazenamento local.")
+            problemas_store = []
+            return
+            
         resp = requests.get(f"{GIST_API_BASE}/{GIST_ID}", headers=gist_headers(), timeout=15)
         resp.raise_for_status()
         data = resp.json()
@@ -89,6 +91,10 @@ def load_from_gist():
 
 def save_to_gist():
     try:
+        if not GIST_TOKEN or not GIST_ID:
+            logger.warning("GIST_TOKEN ou GIST_ID não definidos. Salvando localmente.")
+            return True
+            
         content = json.dumps(problemas_store, ensure_ascii=False, indent=2)
         payload = {"files": {GIST_FILENAME: {"content": content}}}
         resp = requests.patch(f"{GIST_API_BASE}/{GIST_ID}", headers=gist_headers(), json=payload, timeout=15)
@@ -127,20 +133,13 @@ async def send_menu(update, context):
     ]
     markup = InlineKeyboardMarkup(keyboard)
 
-    # get chat safely
-    chat = None
-    if update.message and update.message.chat:
-        chat = update.message.chat
-    elif update.callback_query and update.callback_query.message:
-        chat = update.callback_query.message.chat
-
-    if chat:
-        await context.bot.send_message(
-            chat_id=chat.id,
-            text="👋 *Bem-vindo ao Kernel6 Project!*\nEscolha uma opção:",
-            parse_mode="Markdown",
-            reply_markup=markup
-        )
+    chat_id = update.effective_chat.id
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text="👋 *Bem-vindo ao Kernel6 Project!*\nEscolha uma opção:",
+        parse_mode="Markdown",
+        reply_markup=markup
+    )
 
 
 # ---------- START ----------
@@ -157,10 +156,8 @@ async def ajuda(update, context):
         "/listar - Listar registros\n"
         "/deletar - Excluir registro (senha)"
     )
-    if update.message:
-        await update.message.reply_text(txt, parse_mode="Markdown")
-    elif update.callback_query and update.callback_query.message:
-        await update.callback_query.message.reply_text(txt, parse_mode="Markdown")
+    chat_id = update.effective_chat.id
+    await context.bot.send_message(chat_id, txt, parse_mode="Markdown")
     await send_menu(update, context)
 
 
@@ -177,11 +174,9 @@ async def menu_callback(update, context):
     query = update.callback_query
     await query.answer()
     data = query.data
-    chat = query.message.chat
-    chat_id = chat.id
+    chat_id = query.message.chat.id
 
     if data == "registrar":
-        # send category buttons
         botoes = [[InlineKeyboardButton(cat, callback_data=f"cat:{cat}")] for cat in CATEGORIAS]
         await context.bot.send_message(chat_id=chat_id, text="📝 Qual categoria do problema?", reply_markup=InlineKeyboardMarkup(botoes))
         return CATEGORIA
@@ -212,11 +207,8 @@ async def menu_callback(update, context):
         return ConversationHandler.END
 
     elif data == "delete_menu":
-        # CORREÇÃO: Não retornar DELETE_PASSWORD aqui
-        # Em vez disso, inicie o fluxo de delete diretamente
         await context.bot.send_message(chat_id=chat_id, text="🔐 Digite a senha de administrador:")
-        # Retorne ConversationHandler.END e deixe o deletar_handler cuidar
-        return ConversationHandler.END
+        return DELETE_PASSWORD
 
     elif data == "ajuda":
         await ajuda(update, context)
@@ -225,28 +217,16 @@ async def menu_callback(update, context):
     return ConversationHandler.END
 
 
-# Função auxiliar para iniciar delete flow
-async def start_delete_flow(update, context):
-    """Inicia o fluxo de deleção quando chamado do menu"""
-    query = update.callback_query
-    await query.answer()
-    await context.bot.send_message(
-        chat_id=query.message.chat.id,
-        text="🔐 Digite a senha de administrador:"
-    )
-    return DELETE_PASSWORD
-
-
 # =========================
 # Registrar flow handlers
 # =========================
 async def escolher_categoria(update, context):
     query = update.callback_query
     await query.answer()
-    chat = query.message.chat
     categoria = query.data.replace("cat:", "")
     context.user_data["problema"] = {"categoria": categoria, "status": STATUS_PENDENTE}
-    await context.bot.send_message(chat.id, "📝 *Forneça um título para o problema:*\nEx: \"Poste de luz quebrado na Rua X\"", parse_mode="Markdown")
+    chat_id = query.message.chat.id
+    await context.bot.send_message(chat_id, "📝 *Forneça um título para o problema:*\nEx: \"Poste de luz quebrado na Rua X\"", parse_mode="Markdown")
     return TITULO
 
 
@@ -283,8 +263,7 @@ async def receber_descricao(update, context):
 async def photo_choice(update, context):
     query = update.callback_query
     await query.answer()
-    chat = query.message.chat
-    chat_id = chat.id
+    chat_id = query.message.chat.id
 
     if query.data == "skip_file":
         context.user_data["problema"]["photo_file_id"] = None
@@ -375,7 +354,7 @@ async def mostrar_preview_problema(update, context):
 async def confirmar_registro(update, context):
     query = update.callback_query
     await query.answer()
-    chat_id = query.message.chat.id if query.message else (update.effective_chat.id if update.effective_chat else None)
+    chat_id = query.message.chat.id
 
     if query.data == "confirm_save":
         problema = context.user_data.get("problema")
@@ -492,7 +471,7 @@ async def error_handler(update, context):
 # ---------- Conversation handler config ----------
 registrar_handler = ConversationHandler(
     entry_points=[
-        CallbackQueryHandler(menu_callback, pattern="^(registrar|listar|ajuda)$"),
+        CallbackQueryHandler(menu_callback, pattern="^(registrar|listar|delete_menu|ajuda)$"),
         CommandHandler("registrar", registrar_command)
     ],
     states={
@@ -507,31 +486,25 @@ registrar_handler = ConversationHandler(
         LOCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_local)],
         CONFIRMACAO: [CallbackQueryHandler(confirmar_registro, pattern="^(confirm_save|cancel_save)$")]
     },
-    fallbacks=[]
+    fallbacks=[],
+    per_message=False,
+    per_chat=True,
+    per_user=True
 )
-
-# Handler separado para deletar via menu
-async def handle_delete_menu(update, context):
-    """Handler específico para quando deletar é acionado do menu"""
-    query = update.callback_query
-    await query.answer()
-    await context.bot.send_message(
-        chat_id=query.message.chat.id,
-        text="🔐 Digite a senha de administrador:"
-    )
-    return DELETE_PASSWORD
 
 deletar_handler = ConversationHandler(
     entry_points=[
-        CommandHandler("deletar", deletar_command),
-        CallbackQueryHandler(handle_delete_menu, pattern="^delete_menu$")
+        CommandHandler("deletar", deletar_command)
     ],
     states={
         DELETE_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, deletar_password)],
         DELETE_CHOOSE: [CallbackQueryHandler(deletar_escolha, pattern="^del:")],
         DELETE_CONFIRM: [CallbackQueryHandler(deletar_confirmar, pattern="^delconf:")]
     },
-    fallbacks=[]
+    fallbacks=[],
+    per_message=False,
+    per_chat=True,
+    per_user=True
 )
 
 
@@ -541,7 +514,7 @@ def main():
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Handlers principais
+    # Handlers básicos
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("ajuda", ajuda))
     
@@ -549,23 +522,31 @@ def main():
     app.add_handler(registrar_handler)
     app.add_handler(deletar_handler)
     
-    # Handler para mensagens de texto (menu automático)
+    # Handler para menu automático
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, auto_menu))
     
     # Handler de erros
     app.add_error_handler(error_handler)
 
-    # No Render, usar polling é mais seguro que webhook
-    logger.info("Bot iniciando com polling...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
-    
-    # Alternativa se quiser usar webhook (mais complexo no Render):
-    # app.run_webhook(
-    #     listen="0.0.0.0",
-    #     port=int(os.environ.get("PORT", 8443)),
-    #     url_path=BOT_TOKEN,
-    #     webhook_url=f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/{BOT_TOKEN}"
-    # )
+    # No Render, precisamos configurar webhook ou usar polling com uma porta
+    if os.environ.get('RENDER'):
+        # Usar webhook no Render
+        port = int(os.environ.get('PORT', 8443))
+        webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/{BOT_TOKEN}"
+        
+        logger.info(f"Starting webhook on port {port}")
+        logger.info(f"Webhook URL: {webhook_url}")
+        
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            url_path=BOT_TOKEN,
+            webhook_url=webhook_url
+        )
+    else:
+        # Localmente, usar polling
+        logger.info("Starting with polling (local environment)...")
+        app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
