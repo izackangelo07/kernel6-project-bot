@@ -207,14 +207,28 @@ async def menu_callback(update, context):
         return ConversationHandler.END
 
     elif data == "delete_menu":
+        # NÃO retorne DELETE_PASSWORD aqui
+        # Em vez disso, inicie o fluxo de deleção
         await context.bot.send_message(chat_id=chat_id, text="🔐 Digite a senha de administrador:")
-        return DELETE_PASSWORD
+        # Precisamos iniciar o fluxo de deleção
+        context.user_data['in_delete_flow'] = True
+        return DELETE_PASSWORD  # Agora isso está OK porque estamos no handler correto
 
     elif data == "ajuda":
         await ajuda(update, context)
         return ConversationHandler.END
 
     return ConversationHandler.END
+
+
+# Função especial para iniciar deleção quando chamada do menu
+async def start_delete_from_menu(update, context):
+    """Handler especial para iniciar deleção do menu"""
+    query = update.callback_query
+    await query.answer()
+    chat_id = query.message.chat.id
+    await context.bot.send_message(chat_id=chat_id, text="🔐 Digite a senha de administrador:")
+    return DELETE_PASSWORD
 
 
 # =========================
@@ -401,10 +415,14 @@ async def deletar_password(update, context):
         await update.message.reply_text("📭 Nenhum registro para excluir.")
         return ConversationHandler.END
 
-    botoes = [
-        [InlineKeyboardButton(p.get("titulo", "Sem título"), callback_data=f"del:{p['id']}")]
-        for p in problemas_store
-    ]
+    # Criar botões com os registros
+    botoes = []
+    for p in problemas_store:
+        titulo = p.get("titulo", "Sem título")
+        # Limitar tamanho do título se muito longo
+        if len(titulo) > 30:
+            titulo = titulo[:27] + "..."
+        botoes.append([InlineKeyboardButton(titulo, callback_data=f"del:{p['id']}")])
 
     await update.message.reply_text(
         "🗑 *Selecione o registro que deseja excluir:*",
@@ -469,9 +487,10 @@ async def error_handler(update, context):
 
 
 # ---------- Conversation handler config ----------
+# Handler para registro de problemas
 registrar_handler = ConversationHandler(
     entry_points=[
-        CallbackQueryHandler(menu_callback, pattern="^(registrar|listar|delete_menu|ajuda)$"),
+        CallbackQueryHandler(menu_callback, pattern="^registrar$"),
         CommandHandler("registrar", registrar_command)
     ],
     states={
@@ -492,9 +511,11 @@ registrar_handler = ConversationHandler(
     per_user=True
 )
 
+# Handler para deletar registros (inclui entrada do menu)
 deletar_handler = ConversationHandler(
     entry_points=[
-        CommandHandler("deletar", deletar_command)
+        CommandHandler("deletar", deletar_command),
+        CallbackQueryHandler(start_delete_from_menu, pattern="^delete_menu$")
     ],
     states={
         DELETE_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, deletar_password)],
@@ -506,6 +527,39 @@ deletar_handler = ConversationHandler(
     per_chat=True,
     per_user=True
 )
+
+# Handler para outros callbacks do menu (listar e ajuda)
+async def handle_menu_actions(update, context):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    
+    if data == "listar":
+        if not problemas_store:
+            await query.message.reply_text("📋 Nenhum problema registrado ainda.")
+        else:
+            problemas_ordenados = sorted(problemas_store, key=lambda x: x.get("created_at", ""), reverse=True)
+            for i, p in enumerate(problemas_ordenados, 1):
+                texto = (
+                    f"*{i}. {p.get('categoria','-')}*\n"
+                    f"📝 *Título:* {p.get('titulo','-')}\n"
+                    f"📄 *Descrição:* {p.get('descricao','-')}\n"
+                    f"📍 *Local:* {p.get('descricao_local','-')}\n"
+                    f"📅 *Criado:* {p.get('created_at_formatted','-')}\n"
+                    f"📊 *Status:* {format_status(p.get('status',''))}\n"
+                )
+                if p.get("photo_file_id"):
+                    try:
+                        await context.bot.send_photo(chat_id=query.message.chat.id, photo=p["photo_file_id"], caption=texto, parse_mode="Markdown")
+                    except Exception as e:
+                        logger.warning("Erro ao enviar foto no listar (fallback texto): %s", e)
+                        await query.message.reply_text(texto, parse_mode="Markdown")
+                else:
+                    await query.message.reply_text(texto, parse_mode="Markdown")
+        await send_menu(update, context)
+    
+    elif data == "ajuda":
+        await ajuda(update, context)
 
 
 # ---------- App init ----------
@@ -522,13 +576,16 @@ def main():
     app.add_handler(registrar_handler)
     app.add_handler(deletar_handler)
     
+    # Handler para listar e ajuda (não são conversação)
+    app.add_handler(CallbackQueryHandler(handle_menu_actions, pattern="^(listar|ajuda)$"))
+    
     # Handler para menu automático
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, auto_menu))
     
     # Handler de erros
     app.add_error_handler(error_handler)
 
-    # No Render, precisamos configurar webhook ou usar polling com uma porta
+    # Configurar para funcionar no Render
     if os.environ.get('RENDER'):
         # Usar webhook no Render
         port = int(os.environ.get('PORT', 8443))
