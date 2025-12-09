@@ -263,13 +263,6 @@ async def menu_callback(update, context):
     return ConversationHandler.END
 
 
-# Função para voltar ao menu
-async def voltar_ao_menu(update, context):
-    """Volta ao menu principal"""
-    await send_menu(update, context)
-    return ConversationHandler.END
-
-
 # =========================
 # Registrar flow handlers
 # =========================
@@ -768,7 +761,10 @@ registrar_handler = ConversationHandler(
         CommandHandler("registrar", registrar_command)
     ],
     states={
-        CATEGORIA: [CallbackQueryHandler(escolher_categoria, pattern="^(cat:|voltar_menu)$")],
+        CATEGORIA: [
+            CallbackQueryHandler(escolher_categoria, pattern="^cat:"),
+            CallbackQueryHandler(menu_callback, pattern="^voltar_menu$")
+        ],
         TITULO: [
             CallbackQueryHandler(receber_titulo, pattern="^voltar_categoria$"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, receber_titulo)
@@ -788,7 +784,7 @@ registrar_handler = ConversationHandler(
         ],
         CONFIRMACAO: [CallbackQueryHandler(confirmar_registro, pattern="^(confirm_save|cancel_save|voltar_local)$")]
     },
-    fallbacks=[CallbackQueryHandler(voltar_ao_menu, pattern="^voltar_menu$")],
+    fallbacks=[],
     per_message=False,
     per_chat=True,
     per_user=True
@@ -822,7 +818,7 @@ deletar_handler = ConversationHandler(
         DELETE_CHOOSE: [CallbackQueryHandler(deletar_escolha, pattern="^(del:|voltar_senha)$")],
         DELETE_CONFIRM: [CallbackQueryHandler(deletar_confirmar, pattern="^(delconf:|voltar_escolha)$")]
     },
-    fallbacks=[CallbackQueryHandler(voltar_ao_menu, pattern="^voltar_menu$")],
+    fallbacks=[],
     per_message=False,
     per_chat=True,
     per_user=True
