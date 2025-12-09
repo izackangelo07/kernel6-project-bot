@@ -209,7 +209,7 @@ async def menu_callback(update, context):
                 texto = (
                     f"*{i}. {p.get('categoria','-')}*\n"
                     f"📝 *Título:* {p.get('titulo','-')}\n"
-                    f"📄 *Descrição:* {p.get('descricao','-')}\n"
+                    f"📄 *Descrição:* {p.get('descricao','1-')}\n"
                     f"📍 *Local:* {p.get('descricao_local','-')}\n"
                     f"📅 *Criado:* {p.get('created_at_formatted','-')}\n"
                     f"📊 *Status:* {format_status(p.get('status',''))}\n"
@@ -531,34 +531,40 @@ async def mostrar_preview_problema(update, context):
     problema = context.user_data["problema"]
     chat_id = update.effective_chat.id
 
-    msg = "📋 *Confirme os dados do problema:*\n\n"
-    msg += f"📁 *Categoria:* {problema.get('categoria','-')}\n"
-    msg += f"📝 *Título:* {problema.get('titulo','-')}\n"
-    msg += f"📄 *Descrição:* {problema.get('descricao','-')}\n"
-    msg += f"📍 *Local:* {problema.get('descricao_local','-')}\n"
-    msg += f"📅 *Data:* {problema.get('created_at_formatted','-')}\n"
-    msg += f"📊 *Status:* {format_status(problema.get('status',''))}\n"
-    msg += f"📷 *Foto:* {'✅ Sim' if problema.get('photo_file_id') else '❌ Não'}\n\n"
-    msg += "*Tudo correto?*"
-
-    keyboard = [
-        [InlineKeyboardButton("✅ Confirmar", callback_data="confirm_save"),
-         InlineKeyboardButton("❌ Cancelar", callback_data="cancel_save")],
-        [InlineKeyboardButton("⬅️ Voltar", callback_data="voltar_local")]
-    ]
-
+    # Enviar foto separadamente (se houver)
     if problema.get("photo_file_id"):
         try:
             await context.bot.send_photo(
                 chat_id=chat_id, 
-                photo=problema["photo_file_id"], 
-                caption=msg, 
-                parse_mode="Markdown", 
-                reply_markup=InlineKeyboardMarkup(keyboard)
+                photo=problema["photo_file_id"],
+                caption="📸 *Foto do problema enviada*",
+                parse_mode="Markdown"
             )
-            return
         except Exception as e:
-            logger.warning("Falha ao enviar foto no preview: %s", e)
+            logger.warning("Erro ao enviar foto no preview: %s", e)
+
+    # Mensagem com os dados
+    msg = "📋 *CONFIRME OS DADOS DO PROBLEMA*\n\n"
+    msg += f"📁 *Categoria:* {problema.get('categoria','-')}\n"
+    msg += f"📝 *Título:* {problema.get('titulo','-')}\n"
+    
+    # Limitar descrição se muito longa
+    descricao = problema.get('descricao','-')
+    if len(descricao) > 100:
+        descricao = descricao[:97] + "..."
+    msg += f"📄 *Descrição:* {descricao}\n"
+    
+    msg += f"📍 *Local:* {problema.get('descricao_local','-')}\n"
+    msg += f"📅 *Data:* {problema.get('created_at_formatted','-')}\n"
+    msg += f"📊 *Status:* {format_status(problema.get('status',''))}\n"
+    msg += f"📷 *Foto anexada:* {'✅ Sim' if problema.get('photo_file_id') else '❌ Não'}\n\n"
+    msg += "*Tudo correto?*"
+
+    keyboard = [
+        [InlineKeyboardButton("✅ SIM, CONFIRMAR", callback_data="confirm_save"),
+         InlineKeyboardButton("❌ NÃO, CANCELAR", callback_data="cancel_save")],
+        [InlineKeyboardButton("⬅️ Voltar", callback_data="voltar_local")]
+    ]
 
     await context.bot.send_message(
         chat_id=chat_id, 
@@ -612,7 +618,7 @@ async def confirmar_registro(update, context):
 
 
 # =========================
-# Delete flow handlers
+# Delete flow handlers - CORRIGIDO
 # =========================
 async def deletar_command(update, context):
     keyboard = [[InlineKeyboardButton("⬅️ Voltar ao menu", callback_data="voltar_menu")]]
@@ -624,13 +630,16 @@ async def deletar_command(update, context):
 
 
 async def deletar_password(update, context):
+    # Verificar se é callback de voltar
     if update.callback_query:
         query = update.callback_query
         await query.answer()
         if query.data == "voltar_menu":
             await send_menu(update, context)
             return ConversationHandler.END
+        return DELETE_PASSWORD
     
+    # Se for mensagem de texto (senha)
     senha = (update.message.text or "").strip()
     if senha != ADMIN_PASSWORD:
         keyboard = [[InlineKeyboardButton("⬅️ Voltar ao menu", callback_data="voltar_menu")]]
@@ -681,29 +690,32 @@ async def deletar_escolha(update, context):
         )
         return DELETE_PASSWORD
     
-    global problemas_store
-    reg_id = query.data.split(":")[1]
-    context.user_data["delete_id"] = reg_id
+    # Extrair ID do registro
+    if query.data.startswith("del:"):
+        reg_id = query.data.split(":")[1]
+        context.user_data["delete_id"] = reg_id
 
-    keyboard = [
-        [InlineKeyboardButton("✅ Sim", callback_data="delconf:yes"),
-         InlineKeyboardButton("❌ Não", callback_data="delconf:no")],
-        [InlineKeyboardButton("⬅️ Voltar", callback_data="voltar_escolha")]
-    ]
+        keyboard = [
+            [InlineKeyboardButton("✅ Sim", callback_data="delconf:yes"),
+             InlineKeyboardButton("❌ Não", callback_data="delconf:no")],
+            [InlineKeyboardButton("⬅️ Voltar", callback_data="voltar_escolha")]
+        ]
+        
+        await query.message.reply_text(
+            "⚠ Tem certeza que deseja apagar?\nIsso *não poderá ser desfeito!*",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return DELETE_CONFIRM
     
-    await query.message.reply_text(
-        "⚠ Tem certeza que deseja apagar?\nIsso *não poderá ser desfeito!*",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-    return DELETE_CONFIRM
+    return DELETE_CHOOSE
 
 
 async def deletar_confirmar(update, context):
     query = update.callback_query
     await query.answer()
     
-    global problemas_store  # Declaração global no início da função
+    global problemas_store
 
     if query.data == "delconf:no" or query.data == "voltar_escolha":
         # Voltar para escolha de registro
@@ -723,7 +735,7 @@ async def deletar_confirmar(update, context):
         )
         return DELETE_CHOOSE
 
-    if query.data == "delconf:yes":
+    elif query.data == "delconf:yes":
         reg_id = context.user_data.get("delete_id")
         if not reg_id:
             await query.message.reply_text("❌ Erro interno.")
@@ -790,7 +802,7 @@ registrar_handler = ConversationHandler(
     per_user=True
 )
 
-# Handler para deletar registros
+# Handler para deletar registros - CORRIGIDO
 async def start_delete_from_menu(update, context):
     """Handler especial para iniciar deleção do menu"""
     query = update.callback_query
@@ -815,8 +827,12 @@ deletar_handler = ConversationHandler(
             CallbackQueryHandler(deletar_password, pattern="^voltar_menu$"),
             MessageHandler(filters.TEXT & ~filters.COMMAND, deletar_password)
         ],
-        DELETE_CHOOSE: [CallbackQueryHandler(deletar_escolha, pattern="^(del:|voltar_senha)$")],
-        DELETE_CONFIRM: [CallbackQueryHandler(deletar_confirmar, pattern="^(delconf:|voltar_escolha)$")]
+        DELETE_CHOOSE: [
+            CallbackQueryHandler(deletar_escolha, pattern="^(del:|voltar_senha)$")
+        ],
+        DELETE_CONFIRM: [
+            CallbackQueryHandler(deletar_confirmar, pattern="^(delconf:yes|delconf:no|voltar_escolha)$")
+        ]
     },
     fallbacks=[],
     per_message=False,
