@@ -297,7 +297,6 @@ async def receber_titulo(update, context):
         data = query.data
         
         if data == "voltar_categoria":
-            # Voltar para escolha de categoria
             botoes = []
             for cat in CATEGORIAS:
                 botoes.append([InlineKeyboardButton(cat, callback_data=f"cat:{cat}")])
@@ -346,7 +345,6 @@ async def receber_descricao(update, context):
         data = query.data
         
         if data == "voltar_titulo":
-            # Voltar para título
             keyboard = [[InlineKeyboardButton("⬅️ Voltar", callback_data="voltar_categoria")]]
             await context.bot.send_message(
                 query.message.chat.id, 
@@ -411,7 +409,6 @@ async def photo_choice(update, context):
         return PHOTO
     
     elif query.data == "voltar_descricao":
-        # Voltar para descrição
         keyboard = [[InlineKeyboardButton("⬅️ Voltar", callback_data="voltar_titulo")]]
         await context.bot.send_message(
             chat_id, 
@@ -422,7 +419,6 @@ async def photo_choice(update, context):
         return DESCRICAO
     
     elif query.data == "voltar_foto":
-        # Voltar para escolha de foto
         keyboard = [
             [InlineKeyboardButton("📷 Adicionar foto", callback_data="add_file"),
              InlineKeyboardButton("⏭️ Pular", callback_data="skip_file")],
@@ -440,7 +436,6 @@ async def photo_choice(update, context):
 async def receber_foto(update, context):
     chat_id = update.effective_chat.id
 
-    # se foto
     if update.message.photo:
         file = await update.message.photo[-1].get_file()
         context.user_data["problema"]["photo_file_id"] = file.file_id
@@ -462,7 +457,6 @@ async def receber_foto(update, context):
         )
         return LOCATION
 
-    # se texto (erro) -> reapresenta aviso + botões
     keyboard = [
         [InlineKeyboardButton("📷 Adicionar foto", callback_data="add_file"),
          InlineKeyboardButton("⏭️ Pular", callback_data="skip_file")],
@@ -484,7 +478,6 @@ async def receber_local(update, context):
         data = query.data
         
         if data == "voltar_apos_foto" or data == "voltar_foto":
-            # Voltar para escolha de foto
             keyboard = [
                 [InlineKeyboardButton("📷 Adicionar foto", callback_data="add_file"),
                  InlineKeyboardButton("⏭️ Pular", callback_data="skip_file")],
@@ -532,7 +525,6 @@ async def mostrar_preview_problema(update, context):
     problema = context.user_data["problema"]
     chat_id = update.effective_chat.id
 
-    # Enviar foto separadamente (se houver)
     if problema.get("photo_file_id"):
         try:
             await context.bot.send_photo(
@@ -544,12 +536,10 @@ async def mostrar_preview_problema(update, context):
         except Exception as e:
             logger.warning("Erro ao enviar foto no preview: %s", e)
 
-    # Mensagem com os dados
     msg = "📋 *CONFIRME OS DADOS DO PROBLEMA*\n\n"
     msg += f"📁 *Categoria:* {problema.get('categoria','-')}\n"
     msg += f"📝 *Título:* {problema.get('titulo','-')}\n"
     
-    # Limitar descrição se muito longa
     descricao = problema.get('descricao','-')
     if len(descricao) > 100:
         descricao = descricao[:97] + "..."
@@ -605,7 +595,6 @@ async def confirmar_registro(update, context):
         return ConversationHandler.END
     
     elif query.data == "voltar_local":
-        # Voltar para local
         keyboard = [[InlineKeyboardButton("⬅️ Voltar", callback_data="voltar_foto")]]
         await context.bot.send_message(
             chat_id, 
@@ -631,7 +620,6 @@ async def deletar_command(update, context):
 
 
 async def deletar_password(update, context):
-    # Verificar se é callback de voltar
     if update.callback_query:
         query = update.callback_query
         await query.answer()
@@ -640,7 +628,6 @@ async def deletar_password(update, context):
             return ConversationHandler.END
         return DELETE_PASSWORD
     
-    # Se for mensagem de texto (senha)
     senha = (update.message.text or "").strip()
     if senha != ADMIN_PASSWORD:
         keyboard = [[InlineKeyboardButton("⬅️ Voltar ao menu", callback_data="voltar_menu")]]
@@ -658,17 +645,12 @@ async def deletar_password(update, context):
         )
         return ConversationHandler.END
 
-    # Criar botões com os registros - Título e Local
     botoes = []
     for idx, p in enumerate(problemas_store, 1):
         titulo = p.get("titulo", "Sem título")
         local = p.get("descricao_local", "Sem local")
-        
-        # Criar texto curto para o botão
         texto_titulo = titulo[:15] + "..." if len(titulo) > 15 else titulo
         texto_local = local[:10] + "..." if len(local) > 10 else local
-        
-        # Texto do botão: "idx. Título - Local"
         texto_botao = f"{idx}. {texto_titulo} - {texto_local}"
         botoes.append([InlineKeyboardButton(texto_botao, callback_data=f"del:{p['id']}")])
     
@@ -691,26 +673,17 @@ async def deletar_escolha(update, context):
         await send_menu(update, context)
         return ConversationHandler.END
     
-    # Extrair ID do registro
     if query.data.startswith("del:"):
         reg_id = query.data.split(":")[1]
-        
-        # Encontrar o registro
-        registro = None
-        for p in problemas_store:
-            if p["id"] == reg_id:
-                registro = p
-                break
+        registro = next((p for p in problemas_store if p["id"] == reg_id), None)
         
         if not registro:
             await query.message.reply_text("❌ Registro não encontrado.")
             await send_menu(update, context)
             return ConversationHandler.END
         
-        # Salvar o ID no contexto
         context.user_data["delete_id"] = reg_id
         
-        # Mostrar detalhes do registro
         detalhes = (
             f"🗑 *CONFIRMAR EXCLUSÃO*\n\n"
             f"📁 *Categoria:* {registro.get('categoria', '-')}\n"
@@ -738,11 +711,12 @@ async def deletar_escolha(update, context):
 
 
 async def deletar_confirmar(update, context):
+    global problemas_store  # declare aqui, antes de qualquer uso na função
+
     query = update.callback_query
     await query.answer()
     
     if query.data == "cancel_delete_confirm":
-        # Voltar para lista de registros
         botoes = []
         for idx, p in enumerate(problemas_store, 1):
             titulo = p.get("titulo", "Sem título")
@@ -763,7 +737,6 @@ async def deletar_confirmar(update, context):
         return DELETE_CHOOSE
     
     elif query.data == "confirm_delete":
-        global problemas_store
         reg_id = context.user_data.get("delete_id")
         
         if not reg_id:
@@ -771,7 +744,6 @@ async def deletar_confirmar(update, context):
             await send_menu(update, context)
             return ConversationHandler.END
         
-        # Encontrar e remover o registro
         registro_removido = None
         novos_problemas = []
         
@@ -786,13 +758,9 @@ async def deletar_confirmar(update, context):
             await send_menu(update, context)
             return ConversationHandler.END
         
-        # Atualizar a lista global
         problemas_store = novos_problemas
-        
-        # Salvar no Gist
         save_to_gist()
         
-        # Mensagem de confirmação
         mensagem = (
             f"✅ *Registro excluído com sucesso!*\n\n"
             f"📝 *Título:* {registro_removido.get('titulo', '-')}\n"
@@ -821,7 +789,6 @@ async def error_handler(update, context):
 
 
 # ---------- Conversation handler config ----------
-# Handler para registro de problemas
 registrar_handler = ConversationHandler(
     entry_points=[
         CallbackQueryHandler(menu_callback, pattern="^registrar$"),
@@ -857,9 +824,7 @@ registrar_handler = ConversationHandler(
     per_user=True
 )
 
-# Handler para deletar registros - TOTALMENTE REFEITO
 async def start_delete_from_menu(update, context):
-    """Handler especial para iniciar deleção do menu"""
     query = update.callback_query
     await query.answer()
     chat_id = query.message.chat.id
@@ -978,7 +943,6 @@ def main():
 
     # Configurar para funcionar no Render
     if os.environ.get('RENDER'):
-        # Usar webhook no Render
         port = int(os.environ.get('PORT', 8443))
         webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/{BOT_TOKEN}"
         
@@ -992,7 +956,6 @@ def main():
             webhook_url=webhook_url
         )
     else:
-        # Localmente, usar polling
         logger.info("Starting with polling (local environment)...")
         app.run_polling(allowed_updates=Update.ALL_TYPES)
 
